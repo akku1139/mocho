@@ -1,179 +1,182 @@
-import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 import json
-import numpy as np
-from tinygrad import Tensor, nn, GlobalCounters, TinyJit
-from tinygrad.helpers import getenv
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import IterableDataset, DataLoader
 from tokenizers import Tokenizer
 
-# --- 設定 ---
-VOCAB_SIZE = 6003
-N_EMBD = 512
-N_LAYER = 6
-BATCH_SIZE = 128
-SEQ_LEN = 32
-LEARNING_RATE = 5e-4
-EPOCHS = 5
-DATASET_PATH = "../dataset/train_wikipedia.jsonl"
-TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "../model/weights/mocho.safetensors" # TinyGradではsafetensors推奨
+@torch.jit.script
+def sru_compute(x, u, f, r, c_initial):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    L, B, D = x.shape
+    c = c_initial
+    hs = []
 
-# --- モデル定義 ---
-class SRULayer:
+    # このループがTorchScriptによってC++レベルで最適化される
+    for t in range(L):
+        c = f[t] * c + (1.0 - f[t]) * u[t]
+        h = r[t] * torch.tanh(c) + (1.0 - r[t]) * x[t]
+        hs.append(h)
+
+    return torch.stack(hs), c
+
+class SRULayer(nn.Module):
     def __init__(self, n_embd):
+        super().__init__()
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.ln = nn.LayerNorm(n_embd)
 
-    def __call__(self, x: Tensor, c: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, x, c=None):
         L, B, D = x.shape
+        if c is None:
+            c = torch.zeros(B, D, device=x.device, dtype=x.dtype)
+
+        # 全タイムステップのゲート計算を一気に行う（ここが並列化ポイント）
         ufr = self.w_ufr(x)
-        u, f, r = ufr.chunk(3, dim=-1)
+        u, f, r = torch.chunk(ufr, 3, dim=-1)
 
-        f = f.sigmoid()
-        r = r.sigmoid()
+        f = torch.sigmoid(f)
+        r = torch.sigmoid(r)
 
-        # 循環参照を減らすため、ループ内の計算を最小限にする
-        curr_c = c
-        cs = []
-        for t in range(L):
-            curr_c = f[t].mul(curr_c).add((1.0 - f[t]).mul(u[t]))
-            cs.append(curr_c)
+        # 最適化されたループ関数を呼び出す
+        hs, last_c = sru_compute(x, u, f, r, c)
 
-        cs_stack = Tensor.stack(*cs)
-        # tanhと残差接続を一括で行う
-        hs = r * cs_stack.tanh() + (1.0 - r) * x
+        out = self.ln(F.gelu(hs))
+        return out, last_c
 
-        return self.ln(hs.gelu()), curr_c
-
-class Mocho:
-    def __init__(self, vocab_size, n_embd, n_layer):
+class Mocho(nn.Module):
+    def __init__(self, vocab_size=6003, n_embd=512, n_layer=6):
+        super().__init__()
         self.token_emb = nn.Embedding(vocab_size, n_embd)
-        self.layers = [SRULayer(n_embd) for _ in range(n_layer)]
+        self.layers = nn.ModuleList([SRULayer(n_embd) for _ in range(n_layer)])
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
 
-    def __call__(self, idx: Tensor, c_states: list[Tensor] = None):
+    def forward(self, idx, c_states=None):
         # idx: (L, B)
         x = self.token_emb(idx)
-        
-        if c_states is None:
-            c_states = [Tensor.zeros(idx.shape[1], N_EMBD) for _ in self.layers]
-        
+
         new_states = []
         for i, layer in enumerate(self.layers):
-            x, c_out = layer(x, c_states[i])
+            c_in = c_states[i] if c_states is not None else None
+            x, c_out = layer(x, c_in)
             new_states.append(c_out)
-            
-        return self.lm_head(x), new_states
 
-# --- トレーニング用ヘルパー ---
-def get_parameters(model):
-    params = nn.state.get_parameters(model)
-    return params
+        logits = self.lm_head(x) # (L, B, V)
+        return logits, new_states
 
-# --- データセット (シンプルなジェネレータ) ---
-def wikipedia_dataset_iter(path, tokenizer, seq_len, batch_size):
-    bos_id = tokenizer.token_to_id("<s>")
-    eos_id = tokenizer.token_to_id("</s>")
-    pad_id = tokenizer.token_to_id("[PAD]")
-    input_id = tokenizer.token_to_id("[INPUT]")
-    output_id = tokenizer.token_to_id("[OUTPUT]")
+DEVICE = torch.device("cuda")
+VOCAB_SIZE = 6003
+N_EMBD = 512
+N_LAYER = 6
+BATCH_SIZE = 180
+SEQ_LEN = 256
+LEARNING_RATE = 1e-4
+EPOCHS = 5
+DATASET_PATH = "./mocho/dataset/train_wikipedia.jsonl"
+TOKENIZER_PATH = "./mocho/model/tokenizer/tokenizer.json"
+SAVE_PATH = "./drive/MyDrive/mocho/mocho.pth"
 
-    def encode_line(line):
-        data = json.loads(line)
-        ctx = tokenizer.encode(data.get('left_context') or "").ids
-        inp = tokenizer.encode(data.get('input') or "").ids
-        out = tokenizer.encode(data.get('output') or "").ids
-        ids = [bos_id] + ctx + [input_id] + inp + [output_id] + out + [eos_id]
-        
-        if len(ids) < 5: return None
-        try:
-            out_tkn_pos = ids.index(output_id)
-        except ValueError: return None
-        
-        x_ids = ids[:-1]
-        y_ids = ids[1:]
-        mask = [1.0 if i >= out_tkn_pos else 0.0 for i in range(len(y_ids))]
-        
-        if len(x_ids) > seq_len:
-            return x_ids[:seq_len], y_ids[:seq_len], mask[:seq_len]
-        else:
-            plen = seq_len - len(x_ids)
-            return x_ids + [pad_id]*plen, y_ids + [pad_id]*plen, mask + [0.0]*plen
+# --- データセット定義 ---
+class WikipediaDataset(IterableDataset):
+    def __init__(self, path, tokenizer, seq_len):
+        self.path = path
+        self.tokenizer = tokenizer
+        self.seq_len = seq_len
+        self.bos_id = tokenizer.token_to_id("<s>")
+        self.eos_id = tokenizer.token_to_id("</s>")
+        self.pad_id = tokenizer.token_to_id("[PAD]")
+        self.input_id = tokenizer.token_to_id("[INPUT]")
+        self.output_id = tokenizer.token_to_id("[OUTPUT]")
 
-    batch_x, batch_y, batch_m = [], [], []
-    while True:
-        with open(path, 'r', encoding='utf-8') as f:
-            c = 0
+    def __iter__(self):
+        with open(self.path, 'r', encoding='utf-8') as f:
             for line in f:
-                res = encode_line(line)
-                if c%10000 == 0: print(f"tokenized {c} lines")
-                c += 1
-                if res:
-                    batch_x.append(res[0]); batch_y.append(res[1]); batch_m.append(res[2])
-                    if len(batch_x) == batch_size:
-                        # (B, L) -> (L, B) に転置してTensor化
-                        yield Tensor(batch_x).T, Tensor(batch_y).T, Tensor(batch_m).T
-                        batch_x, batch_y, batch_m = [], [], []
+                data = json.loads(line)
+                ids = self.safe_encode(data)
+                if len(ids) < 5: continue
 
-# --- 学習プロセス ---
-tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER)
-optimizer = nn.optim.Adam(get_parameters(model), lr=LEARNING_RATE)
-
-# 重みの読み込み (存在すれば)
-if os.path.exists(SAVE_PATH):
-    nn.state.load_state_dict(model, nn.state.safe_load(SAVE_PATH))
-
-# JIT化されたトレーニングステップ
-@TinyJit
-def train_step(x, y, mask):
-    optimizer.zero_grad()
-
-    # 1. 順伝播
-    logits, _ = model(x)
-
-    # 2. ログ確率の計算
-    log_probs = logits.log_softmax(axis=-1)
-
-    # 3. gather の修正: gather(axis, index) の順序
-    y_idx = y.unsqueeze(-1) # (L, B, 1)
-    # axis=2 に対して y_idx を適用
-    target_probs = log_probs.gather(2, y_idx).squeeze(-1)
-
-    # 4. 損失の計算
-    loss = -(target_probs * mask).sum() / (mask.sum() + 1e-8)
-
-    loss.backward()
-    optimizer.step()
-
-    return loss.realize()
-
-# --- メインループ ---
-data_gen = wikipedia_dataset_iter(DATASET_PATH, tokenizer, SEQ_LEN, BATCH_SIZE)
-
-try:
-    with Tensor.train():
-        for epoch in range(EPOCHS):
-            next_x, next_y, next_m = next(data_gen)
-            for step in range(1000): # ステップ数はデータに合わせて調整
-                x, y, m = next_x, next_y, next_m
-                loss = train_step(x, y, m)
-
-                if step % 10 == 0:
-                    print(f"Epoch {epoch} | Step {step} | Loss: {loss.numpy():.4f}")
-
-                if step % 500 == 0:
-                    print("saving...")
-                    state_dict = nn.state.get_state_dict(model)
-                    nn.state.safe_save(state_dict, SAVE_PATH)
-
-               # 学習中に次のデータをバックグラウンドで準備（簡易的なプリフェッチ）
                 try:
-                    next_x, next_y, next_m = next(data_gen)
-                    # realize()を呼ぶことで、JITの外側で転送をスケジュールする
-                    next_x.realize(); next_y.realize(); next_m.realize()
-                except StopIteration:
-                    break
+                    out_tkn_pos = ids.index(self.output_id)
+                except ValueError: continue
 
+                x_ids = ids[:-1]
+                y_ids = ids[1:]
+                mask = [1.0 if i >= out_tkn_pos else 0.0 for i in range(len(y_ids))]
+
+                # パディング/切り詰め
+                if len(x_ids) > self.seq_len:
+                    x_ids, y_ids, mask = x_ids[:self.seq_len], y_ids[:self.seq_len], mask[:self.seq_len]
+                else:
+                    plen = self.seq_len - len(x_ids)
+                    x_ids += [self.pad_id] * plen
+                    y_ids += [self.pad_id] * plen
+                    mask += [0.0] * plen
+
+                yield torch.tensor(x_ids), torch.tensor(y_ids), torch.tensor(mask)
+
+    def safe_encode(self, data):
+        ctx = self.tokenizer.encode(data.get('left_context') or "").ids
+        inp = self.tokenizer.encode(data.get('input') or "").ids
+        out = self.tokenizer.encode(data.get('output') or "").ids
+        return [self.bos_id] + ctx + [self.input_id] + inp + [self.output_id] + out + [self.eos_id]
+
+# --- 準備 ---
+tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
+dataset = WikipediaDataset(DATASET_PATH, tokenizer, SEQ_LEN)
+loader = DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=2)
+
+model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
+# model = torch.compile(model)
+
+if os.path.exists(SAVE_PATH):
+    checkpoint = torch.load(SAVE_PATH, map_location=DEVICE)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizerは定義した後にロード
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    if 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+else:
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+criterion = nn.CrossEntropyLoss(reduction='none')
+
+# --- 学習ループ ---
+model.train()
+try:
+    for epoch in range(EPOCHS):
+        for step, (x, y, m) in enumerate(loader):
+            # PyTorchは通常 (Batch, Seq) なので (Seq, Batch) に入れ替え
+            x, y, m = x.t().to(DEVICE), y.t().to(DEVICE), m.t().to(DEVICE)
+
+            optimizer.zero_grad()
+            logits, _ = model(x) # (L, B, V)
+
+            # ロス計算
+            loss = criterion(logits.reshape(-1, VOCAB_SIZE), y.reshape(-1))
+            # マスク適用
+            masked_loss = (loss * m.reshape(-1)).sum() / (m.sum() + 1e-8)
+
+            masked_loss.backward()
+            # 勾配爆発を防ぐ
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+            if step % 10 == 0:
+                print(f"Epoch {epoch} | Step {step} | Loss: {masked_loss.item():.4f}")
+
+            if step % 500 == 0:
+                torch.save({
+                  'model_state_dict': model.state_dict(),
+                  'optimizer_state_dict': optimizer.state_dict(),
+                }, SAVE_PATH)
 except KeyboardInterrupt:
     print("Saving...")
-    nn.state.safe_save(nn.state.get_state_dict(model), SAVE_PATH)
+    torch.save({
+      'model_state_dict': model.state_dict(),
+      'optimizer_state_dict': optimizer.state_dict(),
+    }, SAVE_PATH)
