@@ -1,6 +1,6 @@
 # Tokenizer
 
-https://huggingface.co/ku-nlp/gpt2-small-japanese-char
+based on https://huggingface.co/ku-nlp/gpt2-small-japanese-char
 
 ## LICENSE
 
