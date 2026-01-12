@@ -93,6 +93,7 @@ optimizer = Adam(nn.state.get_parameters(model), lr=LEARNING_RATE)
 
 @TinyJit
 def train_step(x, y, mask):
+    Tensor.training = True
     optimizer.zero_grad()
 
     # 順伝播
@@ -127,13 +128,16 @@ try:
 
             if step % 500 == 0:
                 # ドキュメントに従い safe_save を使用
+                Tensor.training = False
                 state_dict = get_state_dict(model)
                 safe_save(state_dict, SAVE_PATH)
+                Tensor.training = True
                 print(f"モデルを {SAVE_PATH} に保存しました。")
 
             step += 1
 except KeyboardInterrupt:
     print("学習を中断します。現在の重みを保存します...")
+    Tensor.training = False
     safe_save(get_state_dict(model), SAVE_PATH)
 
 print("学習完了。")
