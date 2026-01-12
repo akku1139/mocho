@@ -111,7 +111,7 @@ def wikipedia_dataset_iter(path, tokenizer, seq_len, batch_size):
                         # (B, L) -> (L, B) に転置してTensor化
                         yield Tensor(batch_x).T, Tensor(batch_y).T, Tensor(batch_m).T
                         batch_x, batch_y, batch_m = [], [], []
-                        if c%10000 === 0: print(f"tokenized {c} lines")
+                        if c%10000 == 0: print(f"tokenized {c} lines")
                         c += 1
 
 # --- 学習プロセス ---
