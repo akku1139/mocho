@@ -46,7 +46,6 @@ def data_generator(path, tokenizer, batch_size, seq_len):
             for line in f:
                 data = json.loads(line)
                 ids = safe_encode_sequence(data, tokenizer)
-
                 if len(ids) < 5: continue # 短すぎるデータを除外
 
                 # OUTPUTトークンの位置を特定してマスクを作成
@@ -93,7 +92,6 @@ optimizer = Adam(nn.state.get_parameters(model), lr=LEARNING_RATE)
 
 @TinyJit
 def train_step(x, y, mask):
-    Tensor.training = True
     optimizer.zero_grad()
 
     # 順伝播
@@ -116,28 +114,23 @@ def train_step(x, y, mask):
 print(f"学習を開始します。")
 gen = data_generator(DATASET_PATH, tokenizer, BATCH_SIZE, SEQ_LEN)
 
-step = 0
 try:
     for epoch in range(EPOCHS):
-        for _ in range(1000):
-            x, y, m = next(gen)
-            loss_val = train_step(x, y, m)
+        with Tensor.train():
+            for step in range(1000):
+                x, y, m = next(gen)
+                loss_val = train_step(x, y, m)
 
-            if step % 10 == 0:
-                print(f"Epoch {epoch} | Step {step} | Loss: {loss_val.numpy():.4f}")
+                if step % 10 == 0:
+                    print(f"Epoch {epoch} | Step {step} | Loss: {loss_val.numpy():.4f}")
 
-            if step % 500 == 0:
-                # ドキュメントに従い safe_save を使用
-                Tensor.training = False
-                state_dict = get_state_dict(model)
-                safe_save(state_dict, SAVE_PATH)
-                Tensor.training = True
-                print(f"モデルを {SAVE_PATH} に保存しました。")
+                if step % 500 == 0:
+                    state_dict = get_state_dict(model)
+                    safe_save(state_dict, SAVE_PATH)
+                    print(f"モデルを {SAVE_PATH} に保存しました。")
 
-            step += 1
 except KeyboardInterrupt:
     print("学習を中断します。現在の重みを保存します...")
-    Tensor.training = False
     safe_save(get_state_dict(model), SAVE_PATH)
 
 print("学習完了。")
