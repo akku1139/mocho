@@ -10,7 +10,7 @@ VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
 BATCH_SIZE = 128
-SEQ_LEN = 16
+SEQ_LEN = 32
 LEARNING_RATE = 5e-4
 EPOCHS = 5
 DATASET_PATH = "../dataset/train_wikipedia.jsonl"
@@ -105,14 +105,14 @@ def wikipedia_dataset_iter(path, tokenizer, seq_len, batch_size):
             c = 0
             for line in f:
                 res = encode_line(line)
+                if c%10000 == 0: print(f"tokenized {c} lines")
+                c += 1
                 if res:
                     batch_x.append(res[0]); batch_y.append(res[1]); batch_m.append(res[2])
                     if len(batch_x) == batch_size:
                         # (B, L) -> (L, B) に転置してTensor化
                         yield Tensor(batch_x).T, Tensor(batch_y).T, Tensor(batch_m).T
                         batch_x, batch_y, batch_m = [], [], []
-                        if c%10000 == 0: print(f"tokenized {c} lines")
-                        c += 1
 
 # --- 学習プロセス ---
 tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
