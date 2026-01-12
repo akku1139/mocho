@@ -16,13 +16,13 @@ def sru_compute(x, u, f, r, c_initial):
     L, B, D = x.shape
     c = c_initial
     hs = []
-    
+
     # このループがTorchScriptによってC++レベルで最適化される
     for t in range(L):
         c = f[t] * c + (1.0 - f[t]) * u[t]
         h = r[t] * torch.tanh(c) + (1.0 - r[t]) * x[t]
         hs.append(h)
-        
+
     return torch.stack(hs), c
 
 class SRULayer(nn.Module):
@@ -37,7 +37,7 @@ class SRULayer(nn.Module):
             c = torch.zeros(B, D, device=x.device, dtype=x.dtype)
 
         # 全タイムステップのゲート計算を一気に行う（ここが並列化ポイント）
-        ufr = self.w_ufr(x) 
+        ufr = self.w_ufr(x)
         u, f, r = torch.chunk(ufr, 3, dim=-1)
 
         f = torch.sigmoid(f)
@@ -59,7 +59,7 @@ class Mocho(nn.Module):
     def forward(self, idx, c_states=None):
         # idx: (L, B)
         x = self.token_emb(idx)
-        
+
         new_states = []
         for i, layer in enumerate(self.layers):
             c_in = c_states[i] if c_states is not None else None
@@ -73,13 +73,13 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
-BATCH_SIZE = 32
+BATCH_SIZE = 180
 SEQ_LEN = 256
 LEARNING_RATE = 5e-4
 EPOCHS = 5
 DATASET_PATH = "./mocho/dataset/train_wikipedia.jsonl"
 TOKENIZER_PATH = "./mocho/model/tokenizer/tokenizer.json"
-SAVE_PATH = "./mocho/model/weights/mocho.pth"
+SAVE_PATH = "./drive/MyDrive/mocho/mocho.pth"
 
 # --- データセット定義 ---
 class WikipediaDataset(IterableDataset):
@@ -99,7 +99,7 @@ class WikipediaDataset(IterableDataset):
                 data = json.loads(line)
                 ids = self.safe_encode(data)
                 if len(ids) < 5: continue
-                
+
                 try:
                     out_tkn_pos = ids.index(self.output_id)
                 except ValueError: continue
@@ -131,7 +131,7 @@ dataset = WikipediaDataset(DATASET_PATH, tokenizer, SEQ_LEN)
 loader = DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=2)
 
 model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
-model = torch.compile(model)
+# model = torch.compile(model)
 if os.path.exists(SAVE_PATH):
     model.load_state_dict(torch.load(SAVE_PATH, map_location=DEVICE))
 
