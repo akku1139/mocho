@@ -74,6 +74,8 @@ if __name__ == "__main__":
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
     state_dict = load_file(SAVE_PATH, device=str(DEVICE))
+    if "lm_head.weight" not in state_dict and "token_emb.weight" in state_dict:
+        state_dict["lm_head.weight"] = state_dict["token_emb.weight"]
     model.load_state_dict(state_dict)
     # it makes everything slow
     #model = torch.compile(model)
