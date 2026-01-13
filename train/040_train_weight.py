@@ -49,8 +49,8 @@ class BinaryDataset(Dataset):
 
     def __getitem__(self, i):
         start, length = self.indices[i]
-        # メモリマップから切り出し (int64への変換はここで行う)
-        ids = self.data[start : start + length].astype(np.int64)
+        # uint16のまま取り出す（astypeしない）
+        ids = self.data[start : start + length]
 
         # モデルの入力(x)とターゲット(y)
         x_ids = ids[:-1]
@@ -141,7 +141,7 @@ def main():
     try:
         for epoch in range(EPOCHS):
             for step, (x, y) in enumerate(loader):
-                x, y = x.t().to(DEVICE, non_blocking=True), y.t().to(DEVICE, non_blocking=True)
+                x, y = x.t().to(DEVICE, dtype=torch.int64, non_blocking=True), y.t().to(DEVICE, dtype=torch.int64, non_blocking=True)
 
                 # 1. [OUTPUT]の位置以降をTrueにする (L, B)
                 m_output = (x == output_token_id).cumsum(dim=0) > 0
