@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from tokenizers import Tokenizer, pre_tokenizers, decoders
 from safetensors.torch import load_file
 import os
+import time
 from mocho import Mocho
 
 # --- 設定 ---
@@ -11,8 +12,10 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
+#N_LAYER = 1
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 SAVE_PATH = "../model/weights/mocho.safetensors"
+#SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
 
 def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100, temperature=0.8):
     model.eval()
@@ -54,6 +57,15 @@ def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100
 
     return tokenizer.decode(generated)
 
+def test(model, tokenizer, ctx, inp):
+    print(f"\nContext: {ctx}\nInput: {inp}\nOutput: ", end="", flush=True)
+    start_time = time.perf_counter()
+    result = generate_fast(model, tokenizer, ctx, inp)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    print(result)
+    print(f"time: {elapsed_time:.6f} sec")
+
 if __name__ == "__main__":
     # Tokenizer設定
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
@@ -61,15 +73,12 @@ if __name__ == "__main__":
     tokenizer.decoder = decoders.ByteLevel()
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
-    if os.path.exists(SAVE_PATH):
-        state_dict = load_file(SAVE_PATH, device=str(DEVICE))
-        model.load_state_dict(state_dict)
-        print(f"Loaded: {SAVE_PATH}")
+    state_dict = load_file(SAVE_PATH, device=str(DEVICE))
+    model.load_state_dict(state_dict)
+    # it makes everything slow
+    #model = torch.compile(model)
+    print(f"Loaded: {SAVE_PATH}")
 
-    # テスト
-    ctx = "日本の歴史において、"
-    inp = "エドジダイニツイテオシエテ"
-    print(f"\nContext: {ctx}\nInput: {inp}\nOutput: ", end="", flush=True)
-
-    result = generate_fast(model, tokenizer, ctx, inp)
-    print(result)
+    test(model, tokenizer, "初期化した", "ケッカハザンネンナモノデアッタ")
+    test(model, tokenizer, "日本の歴史において、", "エドジダイニツイテオシエテ")
+    test(model, tokenizer, "", "テストニュウリョクデス")
