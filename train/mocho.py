@@ -33,29 +33,25 @@ def sru_compute(x, ufr, c_initial):
 class SRULayer(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
-        # SRUの重み
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=False)
-        # Pre-LayerNorm用
         self.ln = nn.LayerNorm(n_embd)
-
-        # 初期化: GPTの慣例に従う
         nn.init.normal_(self.w_ufr.weight, std=0.02)
 
     def forward(self, x, c=None):
-        # 1. Pre-LayerNorm (入力にLNをかける)
+        # x: (L, B, D)
+        residual = x  # Pre-LNの残差用に保存
         x_norm = self.ln(x)
 
         if c is None:
-            c = torch.zeros(x.shape[1], x.shape[2], device=x.device, dtype=x.dtype)
+            # size(1)がバッチサイズ、size(2)が次元数
+            c = torch.zeros(x.size(1), x.size(2), device=x.device, dtype=x.dtype)
 
-        # 2. SRU計算
         ufr = self.w_ufr(x_norm)
         hs, last_c = sru_compute(x_norm, ufr, c)
 
-        # 3. 残差接続 (入力を足す) + GELUはSRU内部のtanhがあるので不要な場合が多い
-        # SRUの設計上、hsにはすでに(1-r)*xが含まれていますが、
-        # 深いネットワークでは外側に残差接続を持たせるのが安定の秘訣です。
-        return x + hs, last_c
+        # SRU内部で x_norm がブレンドされているので
+        # ここでは「正規化前の入力」を足して、勾配の通り道を確保する
+        return residual + hs, last_c
 
 class Mocho(nn.Module):
     def __init__(self, vocab_size=6003, n_embd=512, n_layer=6):
@@ -80,7 +76,12 @@ class Mocho(nn.Module):
             nn.init.normal_(module.weight, std=0.02)
 
     def forward(self, idx, c_states=None):
-        x = self.token_emb(idx)
+        # idx が (B, L) で来ても (L, B) で来ても対応できるようにする
+        # 今回の学習ループでは x.t() しているので (L, B) になっているはず
+        x = self.token_emb(idx) # x: (L, B, D)
+
+        # もし token_emb の後に (B, L, D) になっていたら permute(1, 0, 2) が必要
+        # しかし、idx が (L, B) なら x は自動的に (L, B, D) になります。
 
         new_states = []
         for i, layer in enumerate(self.layers):
@@ -88,6 +89,5 @@ class Mocho(nn.Module):
             x, c_out = layer(x, c_in)
             new_states.append(c_out)
 
-        # 最後のLN
         x = self.final_ln(x)
         return self.lm_head(x), new_states
