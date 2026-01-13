@@ -2,52 +2,80 @@ import json
 import numpy as np
 from tokenizers import Tokenizer
 from tqdm import tqdm
-import os
 
 # 設定
 DATASET_PATH = "../dataset/train_wikipedia.jsonl"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 OUTPUT_BIN_PATH = "../dataset/train_data.bin"
 OUTPUT_IDX_PATH = "../dataset/train_indices.bin"
+BATCH_SIZE = 2000  # まとめて処理する行数
 
 def preprocess():
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
+    # Rust側で全コア使わせる設定（デフォルトで有効ですが明示的にも可能）
+    
     bos_id = tokenizer.token_to_id("<s>")
     eos_id = tokenizer.token_to_id("</s>")
     input_id = tokenizer.token_to_id("[INPUT]")
     output_id = tokenizer.token_to_id("[OUTPUT]")
 
-    all_ids = []
     indices = []
     current_pos = 0
 
-    print("Tokenizing and indexing...")
-    with open(DATASET_PATH, 'r', encoding='utf-8') as f:
+    print(f"Tokenizing with batch size {BATCH_SIZE}...")
+    
+    # 書き出し用ファイルを開く
+    with open(DATASET_PATH, 'r', encoding='utf-8') as f, \
+         open(OUTPUT_BIN_PATH, 'wb') as f_bin:
+        
+        batch_lines = []
         for line in tqdm(f):
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            # 各セクションをエンコード
-            ctx = tokenizer.encode(data.get('left_context') or "").ids
-            inp = tokenizer.encode(data.get('input') or "").ids
-            out = tokenizer.encode(data.get('output') or "").ids
+            batch_lines.append(line)
             
-            # 1つの完全なシーケンスを構築
-            ids = [bos_id] + ctx + [input_id] + inp + [output_id] + out + [eos_id]
-            
-            # インデックス（開始位置と長さ）を記録
-            indices.append([current_pos, len(ids)])
-            all_ids.extend(ids)
-            current_pos += len(ids)
+            if len(batch_lines) >= BATCH_SIZE:
+                # バッチ処理
+                current_pos = process_batch(batch_lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin)
+                batch_lines = []
+        
+        # 残りのデータを処理
+        if batch_lines:
+            process_batch(batch_lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin)
 
-    print(f"Saving to {OUTPUT_BIN_PATH}...")
-    # トークン列を保存
-    np.array(all_ids, dtype=np.uint16).tofile(OUTPUT_BIN_PATH)
-    # インデックス（開始位置、長さ）を保存
+    print(f"Saving indices to {OUTPUT_IDX_PATH}...")
     np.array(indices, dtype=np.uint32).tofile(OUTPUT_IDX_PATH)
     print("Done!")
+
+def process_batch(lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin):
+    contexts = []
+    inputs = []
+    outputs = []
+    
+    for line in lines:
+        try:
+            data = json.loads(line)
+            contexts.append(data.get('left_context') or "")
+            inputs.append(data.get('input') or "")
+            outputs.append(data.get('output') or "")
+        except json.JSONDecodeError:
+            continue
+
+    # バッチ単位でエンコード（ここがRustで並列実行される）
+    enc_ctx = tokenizer.encode_batch(contexts)
+    enc_inp = tokenizer.encode_batch(inputs)
+    enc_out = tokenizer.encode_batch(outputs)
+
+    all_batch_ids = []
+    for c, i, o in zip(enc_ctx, enc_inp, enc_out):
+        # 1つのシーケンスを構築
+        ids = [bos_id] + c.ids + [input_id] + i.ids + [output_id] + o.ids + [eos_id]
+        
+        indices.append([current_pos, len(ids)])
+        all_batch_ids.extend(ids)
+        current_pos += len(ids)
+    
+    # バッチごとにバイナリを書き出し（メモリ節約）
+    np.array(all_batch_ids, dtype=np.uint16).tofile(f_bin)
+    return current_pos
 
 if __name__ == "__main__":
     preprocess()
