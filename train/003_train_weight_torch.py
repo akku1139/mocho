@@ -21,18 +21,25 @@ IDX_PATH = "../dataset/train_indices.bin"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 SAVE_PATH = "../model/weights/mocho.pth"
 
-# --- SRU定義 (TorchScript) ---
+# --- SRU定義 (最適化版) ---
 @torch.jit.script
 def sru_compute(x, u, f, r, c_initial):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     L, B, D = x.shape
     c = c_initial
-    hs = []
+    
+    # 1. c の更新ループ（ここでは tanh を行わないのが高速化のコツ）
+    cs = []
     for t in range(L):
         c = f[t] * c + (1.0 - f[t]) * u[t]
-        h = r[t] * torch.tanh(c) + (1.0 - r[t]) * x[t]
-        hs.append(h)
-    return torch.stack(hs), c
+        cs.append(c)
+    
+    # 2. まとめてスタックして並列計算
+    c_stack = torch.stack(cs) # (L, B, D)
+    
+    # 3. ゲート適用と残差結合を一気に（ここでGPUの並列性が活きる）
+    hs = r * torch.tanh(c_stack) + (1.0 - r) * x
+    return hs, c
 
 class SRULayer(nn.Module):
     def __init__(self, n_embd):
@@ -41,13 +48,16 @@ class SRULayer(nn.Module):
         self.ln = nn.LayerNorm(n_embd)
 
     def forward(self, x, c=None):
-        L, B, D = x.shape
         if c is None:
-            c = torch.zeros(B, D, device=x.device, dtype=x.dtype)
+            c = torch.zeros(x.shape[1], x.shape[2], device=x.device, dtype=x.dtype)
+        
         ufr = self.w_ufr(x)
         u, f, r = torch.chunk(ufr, 3, dim=-1)
+        
+        # 活性化関数を適用してからSRU計算へ
         f, r = torch.sigmoid(f), torch.sigmoid(r)
         hs, last_c = sru_compute(x, u, f, r, c)
+        
         return self.ln(F.gelu(hs)), last_c
 
 class Mocho(nn.Module):
@@ -66,16 +76,12 @@ class Mocho(nn.Module):
             new_states.append(c_out)
         return self.lm_head(x), new_states
 
+# --- Datasetクラス ---
 class BinaryDataset(Dataset):
     def __init__(self, bin_path, idx_path, seq_len, tokenizer_path):
-        # np.fromfile ではなく np.memmap を使用
-        # これにより、必要なデータだけがディスクからオンデマンドで読み込まれます
         self.data = np.memmap(bin_path, dtype=np.uint16, mode='r')
-        
-        # インデックスは通常それほど大きくないので fromfile でOK
         self.indices = np.fromfile(idx_path, dtype=np.uint32).reshape(-1, 2)
         self.seq_len = seq_len
-        
         tokenizer = Tokenizer.from_file(tokenizer_path)
         self.pad_id = tokenizer.token_to_id("[PAD]")
         self.output_id = tokenizer.token_to_id("[OUTPUT]")
@@ -85,17 +91,13 @@ class BinaryDataset(Dataset):
 
     def __getitem__(self, i):
         start, length = self.indices[i]
-        # memmapのスライスは非常に高速です
         ids = self.data[start : start + length].astype(np.int64)
-        
-        # 以下、現在のロジックを維持
-        x_ids = ids[:-1]
-        y_ids = ids[1:]
+        x_ids, y_ids = ids[:-1], ids[1:]
         
         mask = np.zeros(len(y_ids), dtype=np.float32)
-        out_positions = np.where(x_ids == self.output_id)[0]
-        if len(out_positions) > 0:
-            mask[out_positions[0]:] = 1.0
+        out_pos = np.where(x_ids == self.output_id)[0]
+        if len(out_pos) > 0:
+            mask[out_pos[0]:] = 1.0
 
         if len(x_ids) > self.seq_len:
             x_ids, y_ids, mask = x_ids[:self.seq_len], y_ids[:self.seq_len], mask[:self.seq_len]
@@ -107,57 +109,54 @@ class BinaryDataset(Dataset):
 
         return torch.from_numpy(x_ids), torch.from_numpy(y_ids), torch.from_numpy(mask)
 
-# --- メイン処理 ---
+# --- 学習メイン ---
 def main():
-    # 準備
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
-    # CPU負荷を下げるため pin_memory=True、num_workersはCPUコア数に合わせて調整
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+    # num_workers=0 でマルチプロセス通信の負荷を一旦ゼロにする
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    criterion = nn.CrossEntropyLoss(reduction='none')
-
+    
     if os.path.exists(SAVE_PATH):
-        print(f"Loading checkpoint: {SAVE_PATH}")
         checkpoint = torch.load(SAVE_PATH, map_location=DEVICE)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
     model.train()
-    scaler = torch.cuda.amp.GradScaler() # 混合精度でさらに高速化
+    scaler = torch.cuda.amp.GradScaler()
 
-    print("Starting training...")
     try:
         for epoch in range(EPOCHS):
             for step, (x, y, m) in enumerate(loader):
-                # (B, L) -> (L, B) に変換してGPU転送
                 x, y, m = x.t().to(DEVICE), y.t().to(DEVICE), m.t().to(DEVICE)
-
                 optimizer.zero_grad()
 
-                with torch.cuda.amp.autocast(): # 混合精度演算
-                    logits, _ = model(x)
-                    loss = criterion(logits.reshape(-1, VOCAB_SIZE), y.reshape(-1))
-                    masked_loss = (loss * m.reshape(-1)).sum() / (m.sum() + 1e-8)
+                with torch.cuda.amp.autocast():
+                    logits, _ = model(x) # (L, B, V)
+                    
+                    # --- 損失計算の効率化（パターンB） ---
+                    # 1. マスクを1次元に平坦化して、計算が必要な位置を特定
+                    flat_m = m.reshape(-1).bool()
+                    # 2. 有効な箇所だけを抽出（テンソルサイズを大幅に削減）
+                    active_logits = logits.reshape(-1, VOCAB_SIZE)[flat_m]
+                    active_labels = y.reshape(-1)[flat_m]
+                    
+                    if active_labels.numel() > 0:
+                        loss = F.cross_entropy(active_logits, active_labels)
+                    else:
+                        continue # 学習対象がないバッチはスキップ
 
-                scaler.scale(masked_loss).backward()
+                scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
                 scaler.update()
 
                 if step % 10 == 0:
-                    print(f"Epoch {epoch} | Step {step} | Loss: {masked_loss.item():.4f}")
-
-                if step % 500 == 0:
-                    torch.save({
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                    }, SAVE_PATH)
+                    print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
     except KeyboardInterrupt:
-        print("\nInterrupted. Saving...")
         torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()}, SAVE_PATH)
 
 if __name__ == "__main__":
