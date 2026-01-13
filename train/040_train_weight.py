@@ -8,6 +8,7 @@ import numpy as np
 import os
 from datetime import datetime
 from mocho import Mocho
+from safetensors.torch import save_file, load_file
 
 # --- 設定 ---
 DEVICE = torch.device("cuda")
@@ -21,7 +22,10 @@ EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "../model/weights/mocho.pth"
+
+# 保存パスの分離
+MODEL_SAVE_PATH = "../model/weights/mocho.safetensors"
+OPT_SAVE_PATH = "../model/weights/optimizer_state.pth"
 
 # --- Dataset ---
 class BinaryDataset(Dataset):
@@ -52,6 +56,20 @@ class BinaryDataset(Dataset):
             mask = np.pad(mask, (0, diff), constant_values=0.0)
         return torch.from_numpy(x_ids), torch.from_numpy(y_ids), torch.from_numpy(mask)
 
+def save_checkpoint(model, optimizer, model_path, opt_path):
+    """
+    torch.compileされたモデルからプレフィックスを除去して保存
+    """
+    # compileされている場合は _orig_mod を取得
+    raw_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+    
+    # 1. モデルの重みをsafetensorsで保存 (プレフィックスなし)
+    save_file(raw_model.state_dict(), model_path)
+    
+    # 2. オプティマイザの状態をpthで保存
+    torch.save(optimizer.state_dict(), opt_path)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Checkpoint saved.")
+
 def main():
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
@@ -60,37 +78,40 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scaler = torch.amp.GradScaler('cuda')
 
-    print(f"[{datetime.now().strftime("%H:%M:%S")}] compiling model...")
-    model = torch.compile(model, options={
-        "triton.cudagraphs": False, # 以前警告が出たCUDAGraphsをオフにする
-        "epilogue_fusion": True     # 安全な最適化だけをオンにする
-    })
-    print(f"[{datetime.now().strftime("%H:%M:%S")}] model compile done.")
-
-    # --- チェックポイントのロード ---
-    if os.path.exists(SAVE_PATH):
-        print(f"Loading weights from {SAVE_PATH}...")
-        checkpoint = torch.load(SAVE_PATH, map_location=DEVICE)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        if 'optimizer_state_dict' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # --- チェックポイントのロード (コンパイル前に行う) ---
+    if os.path.exists(MODEL_SAVE_PATH):
+        print(f"Loading weights from {MODEL_SAVE_PATH}...")
+        state_dict = load_file(MODEL_SAVE_PATH)
+        # compile前のmodelにロードするのでプレフィックス問題は起きない
+        model.load_state_dict(state_dict)
+        
+        if os.path.exists(OPT_SAVE_PATH):
+            print(f"Loading optimizer state from {OPT_SAVE_PATH}...")
+            opt_state = torch.load(OPT_SAVE_PATH, map_location=DEVICE)
+            optimizer.load_state_dict(opt_state)
         print("Checkpoint loaded successfully.")
     else:
         print("No checkpoint found. Starting from scratch.")
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] compiling model...")
+    # ロード後にコンパイルすることで、保存された重みが適用された状態でコンパイルされる
+    model = torch.compile(model, options={
+        "triton.cudagraphs": False,
+        "epilogue_fusion": True
+    })
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] model compile done.")
 
     model.train()
     print("Starting training...")
     try:
         for epoch in range(EPOCHS):
             for step, (x, y, m) in enumerate(loader):
-                # x, y, m: (B, L) -> (L, B)
                 x, y, m = x.t().to(DEVICE), y.t().to(DEVICE), m.t().to(DEVICE)
                 optimizer.zero_grad()
 
                 with torch.amp.autocast('cuda'):
                     logits, _ = model(x)
                     
-                    # ロス計算の効率化
                     flat_m = m.reshape(-1).bool()
                     active_logits = logits.reshape(-1, VOCAB_SIZE)[flat_m]
                     active_labels = y.reshape(-1)[flat_m]
@@ -107,20 +128,14 @@ def main():
                 scaler.update()
 
                 if step % 10 == 0:
-                    print(f"[{datetime.now().strftime("%H:%M:%S")}] Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
-                if step % 500 == 0:
-                    torch.save({
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                    }, SAVE_PATH)
+                if step > 0 and step % 500 == 0:
+                    save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
     except KeyboardInterrupt:
         print("\nInterrupted. Saving checkpoint...")
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, SAVE_PATH)
+        save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
 if __name__ == "__main__":
     main()

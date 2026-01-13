@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 @torch.jit.script
 def sru_compute(x, u, f, r, c_initial):
