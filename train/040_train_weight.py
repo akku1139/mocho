@@ -178,7 +178,7 @@ def main():
 
                 if step % 10 == 0:
                     logger(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
-                    print(f"Sample target_y: {target_y[:, 0]}")
+                    #print(f"Sample target_y: {target_y[:, 0]}")
 
                 if step > 0 and step % 500 == 0:
                     save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
