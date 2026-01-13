@@ -75,11 +75,11 @@ N_EMBD = 512
 N_LAYER = 6
 BATCH_SIZE = 180
 SEQ_LEN = 256
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-4
 EPOCHS = 5
-DATASET_PATH = "./mocho/dataset/train_wikipedia.jsonl"
-TOKENIZER_PATH = "./mocho/model/tokenizer/tokenizer.json"
-SAVE_PATH = "./drive/MyDrive/mocho/mocho.pth"
+DATASET_PATH = "../dataset/train_wikipedia.jsonl"
+TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
+SAVE_PATH = "./model/weights/mocho.pth"
 
 # --- データセット定義 ---
 class WikipediaDataset(IterableDataset):
@@ -132,10 +132,17 @@ loader = DataLoader(dataset, batch_size=BATCH_SIZE, num_workers=2)
 
 model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
 # model = torch.compile(model)
-if os.path.exists(SAVE_PATH):
-    model.load_state_dict(torch.load(SAVE_PATH, map_location=DEVICE))
 
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+if os.path.exists(SAVE_PATH):
+    checkpoint = torch.load(SAVE_PATH, map_location=DEVICE)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizerは定義した後にロード
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    if 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+else:
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
 criterion = nn.CrossEntropyLoss(reduction='none')
 
 # --- 学習ループ ---
@@ -155,13 +162,21 @@ try:
             masked_loss = (loss * m.reshape(-1)).sum() / (m.sum() + 1e-8)
 
             masked_loss.backward()
+            # 勾配爆発を防ぐ
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             if step % 10 == 0:
                 print(f"Epoch {epoch} | Step {step} | Loss: {masked_loss.item():.4f}")
 
             if step % 500 == 0:
-                torch.save(model.state_dict(), SAVE_PATH)
+                torch.save({
+                  'model_state_dict': model.state_dict(),
+                  'optimizer_state_dict': optimizer.state_dict(),
+                }, SAVE_PATH)
 except KeyboardInterrupt:
     print("Saving...")
-    torch.save(model.state_dict(), SAVE_PATH)
+    torch.save({
+      'model_state_dict': model.state_dict(),
+      'optimizer_state_dict': optimizer.state_dict(),
+    }, SAVE_PATH)
