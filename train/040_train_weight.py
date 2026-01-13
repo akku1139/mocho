@@ -30,9 +30,14 @@ MODEL_SAVE_PATH = "../model/weights/mocho.safetensors"
 OPT_SAVE_PATH = "../model/weights/optimizer_state.pth"
 #MODEL_SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
 #OPT_SAVE_PATH = "../model/weights/optimizer_1layer_state.pth"
+LOG_FILE_PATH = "../model/weights/train.log"
+
+log_f = open(LOG_FILE_PATH, "a", encoding="utf-8", buffering=1)
 
 def logger(text):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {text}")
+    msg = f"[{datetime.now().strftime('%H:%M:%S')}] {text}"
+    log_f.write(msg + "\n")
+    print(msg)
 
 # --- Dataset ---
 class BinaryDataset(Dataset):
