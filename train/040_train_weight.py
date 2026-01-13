@@ -17,9 +17,9 @@ VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
 #N_LAYER = 1
-BATCH_SIZE = 400
+BATCH_SIZE = 200
 SEQ_LEN = 256
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 5e-5
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
@@ -31,6 +31,9 @@ OPT_SAVE_PATH = "../model/weights/optimizer_state.pth"
 #MODEL_SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
 #OPT_SAVE_PATH = "../model/weights/optimizer_1layer_state.pth"
 
+def logger(text):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {text}")
+
 # --- Dataset ---
 class BinaryDataset(Dataset):
     def __init__(self, bin_path, idx_path, seq_len, tokenizer_path):
@@ -40,6 +43,7 @@ class BinaryDataset(Dataset):
         tkn = Tokenizer.from_file(tokenizer_path)
         self.pad_id = tkn.token_to_id("[PAD]")
         self.output_id = tkn.token_to_id("[OUTPUT]")
+        self.eos_id = tkn.token_to_id("</s>")
 
     def __len__(self): return len(self.indices)
 
@@ -68,11 +72,16 @@ def save_checkpoint(model, optimizer, model_path, opt_path):
     raw_model = model._orig_mod if hasattr(model, "_orig_mod") else model
 
     # 1. モデルの重みをsafetensorsで保存 (プレフィックスなし)
-    save_file(raw_model.state_dict(), model_path)
+    sd = raw_model.state_dict()
+    # 共有されている重みの片方を削除 (lm_head.weight は token_emb.weight と同じなので消して良い)
+    if "lm_head.weight" in sd:
+        logger("save_checkpoint: removing lm_head.weight")
+        del sd["lm_head.weight"]
+    save_file(sd, model_path)
 
     # 2. オプティマイザの状態をpthで保存
     torch.save(optimizer.state_dict(), opt_path)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Checkpoint saved.")
+    logger(f"Checkpoint saved.")
 
 def collate_fn(batch):
     # batch = [(x1, y1), (x2, y2), ...]
@@ -91,6 +100,9 @@ def main():
 
     output_token_id = dataset.output_id
     pad_token_id = dataset.pad_id
+    eos_token_id = dataset.eos_id
+
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id)
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
@@ -98,57 +110,65 @@ def main():
 
     # --- チェックポイントのロード (コンパイル前に行う) ---
     if os.path.exists(MODEL_SAVE_PATH):
-        print(f"Loading weights from {MODEL_SAVE_PATH}...")
+        logger(f"Loading weights from {MODEL_SAVE_PATH}...")
         state_dict = load_file(MODEL_SAVE_PATH)
+        if "lm_head.weight" not in state_dict and "token_emb.weight" in state_dict:
+            # 重みをコピーする（Weight Tying なので参照をコピーするだけでOK）
+            state_dict["lm_head.weight"] = state_dict["token_emb.weight"]
         # compile前のmodelにロードするのでプレフィックス問題は起きない
         model.load_state_dict(state_dict)
 
         if os.path.exists(OPT_SAVE_PATH):
-            print(f"Loading optimizer state from {OPT_SAVE_PATH}...")
+            logger(f"Loading optimizer state from {OPT_SAVE_PATH}...")
             opt_state = torch.load(OPT_SAVE_PATH, map_location=DEVICE)
             optimizer.load_state_dict(opt_state)
-        print("Checkpoint loaded successfully.")
+        logger("Checkpoint loaded successfully.")
     else:
-        print("No checkpoint found. Starting from scratch.")
+        logger("No checkpoint found. Starting from scratch.")
 
     '''
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] compiling model...")
+    logger(f"compiling model...")
     # ロード後にコンパイルすることで、保存された重みが適用された状態でコンパイルされる
     model = torch.compile(model, options={
         "triton.cudagraphs": False,
         "epilogue_fusion": True
     })
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] model compile done.")
+    logger(f"model compile done.")
     '''
 
     model.train()
-    print("Starting training...")
+    logger("Starting training...")
     try:
         for epoch in range(EPOCHS):
             for step, (x, y) in enumerate(loader):
                 x, y = x.t().to(DEVICE), y.t().to(DEVICE)
 
-                # 1. GPU上で [OUTPUT] 以降を1にするマスクを作成
-                # (x == output_token_id) はその瞬間だけTrueになるテンソル
-                # .cumsum(dim=0) でそれ以降をすべて1以上（True）にする
-                m = (x == output_token_id).cumsum(dim=0) > 0
+                # 1. [OUTPUT]の位置以降をTrueにする (L, B)
+                m_output = (x == output_token_id).cumsum(dim=0) > 0
 
-                # 2. [PAD] トークンはロス計算から除外する (AND演算)
-                m = m & (y != pad_token_id)
+                # 2. </s> (EOS) 以降を学習除外する
+                # y側にEOSが出現した「次」からをTrueにする
+                is_eos_y = (y == eos_token_id)
+                after_eos = is_eos_y.cumsum(dim=0) > 0
+                # EOS自体は学習したい（モデルに終わるタイミングを教えるため）ので、
+                # 「EOS以降」から「EOSそのもの」を引いた範囲をマスク対象にする
+                mask_exclude = after_eos & (~is_eos_y)
+
+                # 3. 最終的なマスク: [OUTPUT]以降 かつ EOS以降ではない かつ PADではない
+                m = m_output & (~mask_exclude) & (y != pad_token_id)
+
+                # 4. ラベルの作成 (無視する場所は pad_token_id/ignore_index に置換)
+                target_y = torch.where(m, y, pad_token_id)
 
                 optimizer.zero_grad()
 
                 with torch.amp.autocast('cuda'):
                     logits, _ = model(x)
+                    loss = criterion(logits.view(-1, VOCAB_SIZE), target_y.view(-1))
 
-                    flat_m = m.reshape(-1).bool()
-                    active_logits = logits.reshape(-1, VOCAB_SIZE)[flat_m]
-                    active_labels = y.reshape(-1)[flat_m]
-
-                    if active_labels.numel() > 0:
-                        loss = F.cross_entropy(active_logits, active_labels)
-                    else:
-                        continue
+                if torch.isnan(loss):
+                    logger(f"Epoch {epoch} | Step {step} | Loss is NaN")
+                    continue
 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -157,13 +177,14 @@ def main():
                 scaler.update()
 
                 if step % 10 == 0:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+                    logger(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+                    print(f"Sample target_y: {target_y[:, 0]}")
 
                 if step > 0 and step % 500 == 0:
                     save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
     except KeyboardInterrupt:
-        print("\nInterrupted. Saving checkpoint...")
+        logger("\nInterrupted. Saving checkpoint...")
         save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
 if __name__ == "__main__":

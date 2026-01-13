@@ -35,6 +35,7 @@ class SRULayer(nn.Module):
         super().__init__()
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.ln = nn.LayerNorm(n_embd)
+        nn.init.normal_(self.w_ufr.weight, std=0.02)
 
     def forward(self, x, c=None):
         if c is None:
@@ -51,9 +52,11 @@ class SRULayer(nn.Module):
 class Mocho(nn.Module):
     def __init__(self, vocab_size=6003, n_embd=512, n_layer=6):
         super().__init__()
+        self.n_embd = n_embd
         self.token_emb = nn.Embedding(vocab_size, n_embd)
         self.layers = nn.ModuleList([SRULayer(n_embd) for _ in range(n_layer)])
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
+        self.lm_head.weight = self.token_emb.weight
 
     def forward(self, idx, c_states=None):
         x = self.token_emb(idx)
