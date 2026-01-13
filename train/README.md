@@ -9,7 +9,7 @@ uv pip install --pre torch torchvision --index-url https://download.pytorch.org/
 ```
 
 ```
-while true; do python 040_train_weight.py; sleep 10; done
+while true; do python 040_train_weight.py; echo waiting...; sleep 10; done
 ```
 
 ## env vars
