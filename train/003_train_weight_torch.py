@@ -66,11 +66,13 @@ class Mocho(nn.Module):
             new_states.append(c_out)
         return self.lm_head(x), new_states
 
-# --- 高速データセット定義 ---
 class BinaryDataset(Dataset):
     def __init__(self, bin_path, idx_path, seq_len, tokenizer_path):
-        self.data = np.fromfile(bin_path, dtype=np.uint16)
-        # インデックスは (N, 2) の形で読み込む [start_pos, length]
+        # np.fromfile ではなく np.memmap を使用
+        # これにより、必要なデータだけがディスクからオンデマンドで読み込まれます
+        self.data = np.memmap(bin_path, dtype=np.uint16, mode='r')
+        
+        # インデックスは通常それほど大きくないので fromfile でOK
         self.indices = np.fromfile(idx_path, dtype=np.uint32).reshape(-1, 2)
         self.seq_len = seq_len
         
@@ -83,19 +85,18 @@ class BinaryDataset(Dataset):
 
     def __getitem__(self, i):
         start, length = self.indices[i]
+        # memmapのスライスは非常に高速です
         ids = self.data[start : start + length].astype(np.int64)
         
-        # <s> から </s> までの1セットを抽出
+        # 以下、現在のロジックを維持
         x_ids = ids[:-1]
         y_ids = ids[1:]
         
-        # [OUTPUT] 以降を学習対象にするマスク作成
         mask = np.zeros(len(y_ids), dtype=np.float32)
         out_positions = np.where(x_ids == self.output_id)[0]
         if len(out_positions) > 0:
             mask[out_positions[0]:] = 1.0
 
-        # パディング / 切り詰め
         if len(x_ids) > self.seq_len:
             x_ids, y_ids, mask = x_ids[:self.seq_len], y_ids[:self.seq_len], mask[:self.seq_len]
         else:
