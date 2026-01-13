@@ -79,7 +79,7 @@ LEARNING_RATE = 1e-4
 EPOCHS = 5
 DATASET_PATH = "../dataset/train_wikipedia.jsonl"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "./model/weights/mocho.pth"
+SAVE_PATH = "../model/weights/mocho.pth"
 
 # --- データセット定義 ---
 class WikipediaDataset(IterableDataset):
