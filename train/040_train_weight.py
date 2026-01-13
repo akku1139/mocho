@@ -141,7 +141,7 @@ def main():
     try:
         for epoch in range(EPOCHS):
             for step, (x, y) in enumerate(loader):
-                x, y = x.t().to(DEVICE), y.t().to(DEVICE)
+                x, y = x.t().to(DEVICE, non_blocking=True), y.t().to(DEVICE, non_blocking=True)
 
                 # 1. [OUTPUT]の位置以降をTrueにする (L, B)
                 m_output = (x == output_token_id).cumsum(dim=0) > 0
