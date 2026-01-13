@@ -6,14 +6,14 @@ from torch.utils.data import Dataset, DataLoader
 from tokenizers import Tokenizer
 import numpy as np
 import os
-import warnings
+from datetime import datetime
 
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 SEQ_LEN = 256
 LEARNING_RATE = 1e-4
 EPOCHS = 5
@@ -42,16 +42,6 @@ class SRULayer(nn.Module):
         super().__init__()
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.ln = nn.LayerNorm(n_embd)
-        
-        # コンパイルの試行
-        self.optimized_compute = sru_compute
-        if hasattr(torch, "compile"):
-            print("compiling sru_compute")
-            try:
-                # reduce-overheadモードでCPU負荷軽減を狙う
-                self.optimized_compute = torch.compile(sru_compute, mode="reduce-overhead")
-            except Exception as e:
-                warnings.warn(f"torch.compile failed, falling back to eager mode: {e}")
 
     def forward(self, x, c=None):
         if c is None:
@@ -61,7 +51,7 @@ class SRULayer(nn.Module):
         u, f, r = torch.chunk(ufr, 3, dim=-1)
         f, r = torch.sigmoid(f), torch.sigmoid(r)
         
-        hs, last_c = self.optimized_compute(x, u, f, r, c)
+        hs, last_c = sru_compute(x, u, f, r, c)
         return self.ln(F.gelu(hs)), last_c
 
 class Mocho(nn.Module):
@@ -111,7 +101,7 @@ class BinaryDataset(Dataset):
 
 def main():
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
@@ -127,6 +117,10 @@ def main():
         print("Checkpoint loaded successfully.")
     else:
         print("No checkpoint found. Starting from scratch.")
+
+    print(f"[{datetime.now().strftime("%H:%M:%S")}] compiling model...")
+    model = torch.compile(model)
+    print(f"[{datetime.now().strftime("%H:%M:%S")}] model compile done.")
 
     model.train()
     print("Starting training...")
@@ -157,7 +151,7 @@ def main():
                 scaler.update()
 
                 if step % 10 == 0:
-                    print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+                    print(f"[{datetime.now().strftime("%H:%M:%S")}] Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
                 if step % 500 == 0:
                     torch.save({

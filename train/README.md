@@ -2,6 +2,12 @@
 
 基本的にVibe Coding、動けばよし。
 
+## torch
+
+```
+uv pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/rocm7.1
+```
+
 ## env vars
 
 ```
