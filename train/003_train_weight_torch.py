@@ -13,7 +13,7 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
-BATCH_SIZE = 256
+BATCH_SIZE = 400
 SEQ_LEN = 256
 LEARNING_RATE = 1e-4
 EPOCHS = 5
@@ -101,11 +101,18 @@ class BinaryDataset(Dataset):
 
 def main():
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scaler = torch.amp.GradScaler('cuda')
+
+    print(f"[{datetime.now().strftime("%H:%M:%S")}] compiling model...")
+    model = torch.compile(model, options={
+        "triton.cudagraphs": False, # 以前警告が出たCUDAGraphsをオフにする
+        "epilogue_fusion": True     # 安全な最適化だけをオンにする
+    })
+    print(f"[{datetime.now().strftime("%H:%M:%S")}] model compile done.")
 
     # --- チェックポイントのロード ---
     if os.path.exists(SAVE_PATH):
@@ -117,10 +124,6 @@ def main():
         print("Checkpoint loaded successfully.")
     else:
         print("No checkpoint found. Starting from scratch.")
-
-    print(f"[{datetime.now().strftime("%H:%M:%S")}] compiling model...")
-    model = torch.compile(model)
-    print(f"[{datetime.now().strftime("%H:%M:%S")}] model compile done.")
 
     model.train()
     print("Starting training...")
