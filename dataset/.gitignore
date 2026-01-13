@@ -1,1 +1,3 @@
 /train_wikipedia.jsonl
+/train_data.bin
+/train_indices.bin
