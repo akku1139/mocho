@@ -185,7 +185,7 @@ def main():
                     logger(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
                     #print(f"Sample target_y: {target_y[:, 0]}")
 
-                if step > 0 and step % 500 == 0:
+                if step > 0 and step % 100 == 0:
                     save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
     except KeyboardInterrupt:
