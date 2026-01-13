@@ -1,6 +1,6 @@
 import json
 import numpy as np
-from tokenizers import Tokenizer
+from tokenizers import Tokenizer, decoders
 from tqdm import tqdm
 
 # 設定
@@ -10,10 +10,18 @@ OUTPUT_BIN_PATH = "../dataset/train_data.bin"
 OUTPUT_IDX_PATH = "../dataset/train_indices.bin"
 BATCH_SIZE = 2000  # まとめて処理する行数
 
+from tokenizers import pre_tokenizers
+
 def preprocess():
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-    # Rust側で全コア使わせる設定（デフォルトで有効ですが明示的にも可能）
     
+    # --- ここを追加 ---
+    # バイトレベルの前処理を設定
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    # デコーダーもバイトレベルにしないと、デコード時に文字化けします
+    tokenizer.decoder = decoders.ByteLevel()
+    # ------------------
+
     bos_id = tokenizer.token_to_id("<s>")
     eos_id = tokenizer.token_to_id("</s>")
     input_id = tokenizer.token_to_id("[INPUT]")

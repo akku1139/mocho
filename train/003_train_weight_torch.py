@@ -19,7 +19,7 @@ EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "./model/weights/mocho.pth"
+SAVE_PATH = "../model/weights/mocho.pth"
 
 # --- SRU定義 (TorchScript) ---
 @torch.jit.script
