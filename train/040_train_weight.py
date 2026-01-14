@@ -132,7 +132,6 @@ def main():
             logger(f"Loading optimizer and scheduler state...")
             checkpoint_states = torch.load(OPT_SAVE_PATH, map_location=DEVICE)
             optimizer.load_state_dict(checkpoint_states["optimizer_state_dict"])
-            optimizer.load_state_dict(opt_state)
             scheduler.load_state_dict(checkpoint_states["scheduler_state_dict"])
         logger("Checkpoint loaded successfully.")
     else:
