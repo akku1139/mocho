@@ -227,7 +227,6 @@ source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
     { name = "safetensors" },
-    { name = "tinygrad" },
     { name = "tokenizers" },
     { name = "torch" },
 ]
@@ -236,7 +235,6 @@ dependencies = [
 requires-dist = [
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "safetensors", specifier = ">=0.7.0" },
-    { name = "tinygrad", git = "https://github.com/tinygrad/tinygrad.git" },
     { name = "tokenizers", specifier = ">=0.22.2" },
     { name = "torch", specifier = ">=2.11.0.dev20260112", index = "https://download.pytorch.org/whl/nightly/rocm7.1" },
 ]
@@ -403,11 +401,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5" },
 ]
-
-[[package]]
-name = "tinygrad"
-version = "0.12.0"
-source = { git = "https://github.com/tinygrad/tinygrad.git#330a0b686e47ce6ae6f2e5ef84a189fac0b0841d" }
 
 [[package]]
 name = "tokenizers"
