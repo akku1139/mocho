@@ -12,8 +12,7 @@ from mocho import Mocho
 DEVICE = torch.device("cpu")
 VOCAB_SIZE = 6003
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "../model/weights/mocho.safetensors"
-#SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
+SAVE_PATH = "../model/weights/v1.3/mocho.safetensors"
 
 def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100, temperature=0.8):
     model.eval()
