@@ -3,11 +3,11 @@ from safetensors.torch import save_file
 import os
 
 # 元のファイルのパス
-OLD_PTH_PATH = "../model/weights/mocho.pth"
+OLD_PTH_PATH = "../model/weights/v1/mocho.pth"
 
 # 出力先のパス
-NEW_SAFE_PATH = "../model/weights/mocho.safetensors"
-NEW_OPT_PATH = "../model/weights/optimizer_state.pth"
+NEW_SAFE_PATH = "../model/weights/v1/mocho.safetensors"
+NEW_OPT_PATH = "../model/weights/v1/optimizer_state.pth"
 
 def convert():
     if not os.path.exists(OLD_PTH_PATH):

@@ -15,8 +15,8 @@ N_EMBD = 512
 N_LAYER = 6
 #N_LAYER = 1
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-SAVE_PATH = "../model/weights/mocho.safetensors"
-#SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
+SAVE_PATH = "../model/weights/v1/mocho.safetensors"
+#SAVE_PATH = "../model/weights/v1/mocho_1layer.safetensors"
 
 def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100, temperature=0.8):
     model.eval()

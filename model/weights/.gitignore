@@ -2,3 +2,5 @@
 *.pth_
 *.safetensors
 *.log
+*.onnx
+*.onnx.data

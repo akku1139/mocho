@@ -26,11 +26,11 @@ IDX_PATH = "../dataset/train_indices.bin"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 
 # 保存パスの分離
-MODEL_SAVE_PATH = "../model/weights/mocho.safetensors"
-OPT_SAVE_PATH = "../model/weights/optimizer_state.pth"
-#MODEL_SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
-#OPT_SAVE_PATH = "../model/weights/optimizer_1layer_state.pth"
-LOG_FILE_PATH = "../model/weights/train.log"
+MODEL_SAVE_PATH = "../model/weights/v1/mocho.safetensors"
+OPT_SAVE_PATH = "../model/weights/v1/optimizer_state.pth"
+#MODEL_SAVE_PATH = "../model/weights/v1/mocho_1layer.safetensors"
+#OPT_SAVE_PATH = "../model/weights/v1optimizer_1layer_state.pth"
+LOG_FILE_PATH = "../model/weights/v1/train.log"
 
 log_f = open(LOG_FILE_PATH, "a", encoding="utf-8", buffering=1)
 
