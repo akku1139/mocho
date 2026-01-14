@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Tuple
 
 @torch.jit.script
 def sru_compute(x, ufr, c_initial):
-    # type: (Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+    # type: (torch.Tensor, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
     L, B, D = x.shape
     u, f, r = torch.chunk(ufr, 3, dim=-1)
 
