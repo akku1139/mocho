@@ -9,14 +9,17 @@ def sru_compute(x, ufr, c_initial):
     L, B, D = x.shape
     u, f, r = torch.chunk(ufr, 3, dim=-1)
 
-    # Sigmoidをここで一括で行う（L > 1 の時に爆速になる）
+    # Sigmoidは標準に戻す（ハードウェア最適化が効きやすいため）
     f_gate = torch.sigmoid(f)
     r_gate = torch.sigmoid(r)
 
-    # ONNXがループを認識してくれないのでprefillでも1トークンずつ
     u_s, f_s, r_s, x_s = u[0], f_gate[0], r_gate[0], x[0]
     c_new = f_s * c_initial + (1.0 - f_s) * u_s
-    h_new = r_s * torch.tanh(c_new) + (1.0 - r_s) * x_s
+
+    # Tanhを、ONNXで最も軽く処理される Hardtanh (-1 to 1 clip) に変更
+    # Softsignよりも計算ステップが少なく、多くの推論エンジンで最適化されます
+    h_new = r_s * torch.clamp(c_new, -1.0, 1.0) + (1.0 - r_s) * x_s
+
     return h_new.unsqueeze(0), c_new
 
 class SRULayer(nn.Module):

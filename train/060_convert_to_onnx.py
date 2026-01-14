@@ -20,7 +20,7 @@ def export_to_onnx():
     dummy_idx = torch.randint(0, 6003, (1, 1), dtype=torch.int64)
     dummy_states = torch.zeros(layers, 1, 512, dtype=torch.float32)
 
-    save_path = "../model/weights/v1/mocho.onnx"
+    save_path = "../model/weights/v1.2/mocho.onnx"
 
     torch.onnx.export(
         model,
