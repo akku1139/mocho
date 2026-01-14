@@ -8,7 +8,8 @@ import time
 from mocho import Mocho
 
 # --- 設定 ---
-DEVICE = torch.device("cuda")
+#DEVICE = torch.device("cuda")
+DEVICE = torch.device("cpu")
 VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
