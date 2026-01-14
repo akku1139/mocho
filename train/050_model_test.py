@@ -60,7 +60,7 @@ def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100
 def test(model, tokenizer, ctx, inp):
     print(f"\nContext: {ctx}\nInput: {inp}\nOutput: ", end="", flush=True)
     start_time = time.perf_counter()
-    result = generate_fast(model, tokenizer, ctx, inp)
+    result = generate_fast(model, tokenizer, ctx, inp, 100, 0.2)
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     print(result)
