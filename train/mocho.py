@@ -4,85 +4,85 @@ import torch.nn.functional as F
 from typing import Tuple
 
 @torch.jit.script
-def sru_compute(x, ufr, c_initial):
+def sru_compute(ufr, c_initial, x_norm):
     # type: (torch.Tensor, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
-    L, B, D = x.shape
+    L, B, D = x_norm.shape
     u, f, r = torch.chunk(ufr, 3, dim=-1)
 
-    # Sigmoidをここで一括で行う（L > 1 の時に爆速になる）
     f_gate = torch.sigmoid(f)
     r_gate = torch.sigmoid(r)
 
     if L == 1:
-        # 生成時は極限までシンプルに
-        # [1, B, D] -> [B, D] に絞って計算
-        u_s, f_s, r_s, x_s = u[0], f_gate[0], r_gate[0], x[0]
-        c_new = f_s * c_initial + (1.0 - f_s) * u_s
-        h_new = r_s * torch.tanh(c_new) + (1.0 - r_s) * x_s
+        # u[0]に直接tanhを適用して、爆発を抑えつつ表現力を安定させる
+        u_s = torch.tanh(u[0])
+        c_new = f_gate[0] * c_initial + (1.0 - f_gate[0]) * u_s
+        h_new = r_gate[0] * torch.tanh(c_new) + (1.0 - r_gate[0]) * x_norm[0]
         return h_new.unsqueeze(0), c_new
 
-    # Prefill時はメモリ確保してループ
-    c_stack = torch.empty_like(x)
+    c_stack = torch.empty_like(x_norm)
     c = c_initial
     for t in range(L):
-        c = f_gate[t] * c + (1.0 - f_gate[t]) * u[t]
+        # f_gateの初期値を高めに（忘却しにくく）することで、初期の学習を安定化
+        u_t = torch.tanh(u[t])
+        c = f_gate[t] * c + (1.0 - f_gate[t]) * u_t
         c_stack[t] = c
 
-    hs = r_gate * torch.tanh(c_stack) + (1.0 - r_gate) * x
+    hs = r_gate * torch.tanh(c_stack) + (1.0 - r_gate) * x_norm
     return hs, c
 
 class SRULayer(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
-        self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=False)
+        # バイアスを持たせ、忘却ゲートの初期値を制御しやすくする
+        self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=True)
         self.ln = nn.LayerNorm(n_embd)
-        nn.init.normal_(self.w_ufr.weight, std=0.02)
+        self._init_bias()
+
+    def _init_bias(self):
+        # 忘却ゲート(f)のバイアスを 1.0〜2.0 程度にして、最初は「覚える」側に倒す
+        # [u, f, r] の順なので、真ん中のスライス
+        nn.init.constant_(self.w_ufr.bias[self.ln.normalized_shape[0] : 2*self.ln.normalized_shape[0]], 1.5)
 
     def forward(self, x, c=None):
-        # x: (L, B, D)
-        residual = x  # Pre-LNの残差用に保存
+        residual = x
         x_norm = self.ln(x)
 
         if c is None:
-            # size(1)がバッチサイズ、size(2)が次元数
             c = torch.zeros(x.size(1), x.size(2), device=x.device, dtype=x.dtype)
 
         ufr = self.w_ufr(x_norm)
-        hs, last_c = sru_compute(x_norm, ufr, c)
+        # 修正: residual + hs ではなく、SRU内部で入力をバイパスしているので
+        # ここでは hs 自体が residual を含むような形にする（Highway Network的）
+        hs, last_c = sru_compute(ufr, c, x_norm)
 
-        # SRU内部で x_norm がブレンドされているので
-        # ここでは「正規化前の入力」を足して、勾配の通り道を確保する
+        # residual(入力) + hs(変換された残差)
         return residual + hs, last_c
 
 class Mocho(nn.Module):
-    def __init__(self, vocab_size=6003, n_embd=512, n_layer=6):
+    def __init__(self, vocab_size=6003, n_embd=768, n_layer=10):
         super().__init__()
         self.n_embd = n_embd
         self.token_emb = nn.Embedding(vocab_size, n_embd)
         self.layers = nn.ModuleList([SRULayer(n_embd) for _ in range(n_layer)])
-        # 最終層の後のLayerNorm (Pre-LN方式では必須)
         self.final_ln = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
-
-        # Weight Tying
         self.lm_head.weight = self.token_emb.weight
 
-        # 全体的な重み初期化
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, std=0.02)
+            if module.bias is not None:
+                # 忘却ゲート以外は0初期化
+                if module.out_features != self.n_embd * 3:
+                    nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, std=0.02)
 
     def forward(self, idx, c_states=None):
-        # idx が (B, L) で来ても (L, B) で来ても対応できるようにする
-        # 今回の学習ループでは x.t() しているので (L, B) になっているはず
-        x = self.token_emb(idx) # x: (L, B, D)
-
-        # もし token_emb の後に (B, L, D) になっていたら permute(1, 0, 2) が必要
-        # しかし、idx が (L, B) なら x は自動的に (L, B, D) になります。
+        # idx: (L, B) assuming .t() from trainer
+        x = self.token_emb(idx)
 
         new_states = []
         for i, layer in enumerate(self.layers):
