@@ -2,6 +2,7 @@ import torch
 import os
 from mocho import Mocho
 from safetensors.torch import load_file
+import onnx
 
 def export_onnx():
     # パスの設定
@@ -65,9 +66,17 @@ def export_onnx():
         dynamic_axes={
             "idx": {0: "seq_len"},
             "logits": {0: "seq_len"}
-        }
+        },
     )
     print("Success: ONNX model saved.")
+
+    model = onnx.load(ONNX_PATH)
+    onnx.save(model, ONNX_PATH, save_as_external_data=False)
+
+    # 不要になった .data ファイルを削除
+    data_file = ONNX_PATH + ".data"
+    if os.path.exists(data_file):
+        os.remove(data_file)
 
 if __name__ == "__main__":
     export_onnx()
