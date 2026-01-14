@@ -1,82 +1,51 @@
 import torch
-import os
-from mocho import Mocho
+import torch.nn as nn
 from safetensors.torch import load_file
+from mocho_for_onnx_export import MochoONNX
 import onnx
+import os
 
-def export_onnx():
-    # パスの設定
-    SAVE_PATH = "../model/weights/v1/mocho.safetensors"
-    ONNX_PATH = "../model/weights/v1/mocho.onnx"
-    os.makedirs(os.path.dirname(ONNX_PATH), exist_ok=True)
+SAVE_PATH = "../model/weights/v1/mocho.safetensors"
 
-    VOCAB_SIZE, N_EMBD, N_LAYER = 6003, 512, 6
-    model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER)
-    
-    # 重みのロード
+def export_to_onnx():
+    B, L, D, layers = 1, 1, 512, 6
+    model = MochoONNX(n_embd=D, n_layer=layers).eval()
     state_dict = load_file(SAVE_PATH, device="cpu")
-    if "lm_head.weight" not in state_dict:
-        state_dict["lm_head.weight"] = state_dict["token_emb.weight"]
+
+    # Weight Tying を手動で適用
+    state_dict["lm_head.weight"] = state_dict["token_emb.weight"]
+
     model.load_state_dict(state_dict)
-    model.eval() # 変換前に必ず eval モードにする
 
-    # ONNX用にインターフェースを完全にフラット化するラッパー
-    class OnnxWrapper(torch.nn.Module):
-        def __init__(self, model):
-            super().__init__()
-            self.model = model
-        def forward(self, idx, s0, s1, s2, s3, s4, s5):
-            # リストとしてモデルに渡す
-            logits, new_states = self.model(idx, [s0, s1, s2, s3, s4, s5])
-            # 戻り値もフラットなタプルにする
-            return logits, *new_states
+    dummy_idx = torch.randint(0, 6003, (1, 1), dtype=torch.int64)
+    dummy_states = torch.zeros(layers, 1, 512, dtype=torch.float32)
 
-    wrapped_model = OnnxWrapper(model)
+    save_path = "../model/weights/v1/mocho.onnx"
 
-    # ダミー入力 (L=1, B=1) と 6層分の初期State
-    dummy_idx = torch.zeros((1, 1), dtype=torch.long)
-    dummy_states = [torch.zeros(1, N_EMBD) for _ in range(N_LAYER)]
-
-    # 入出力名の定義
-    input_names = ["idx"] + [f"state_in_{i}" for i in range(N_LAYER)]
-    output_names = ["logits"] + [f"state_out_{i}" for i in range(N_LAYER)]
-
-    # --- 修正ポイント: dynamic_shapes を直接定義 ---
-    # idx の 0番目の次元（シーケンス長）を可変にする
-    # PyTorch 2.5+ では dynamic_axes の代わりにこちらが推奨
-    from torch.export import Dim
-    seq_len = Dim("seq_len", min=1, max=2048)
-    dynamic_shapes = {
-        "idx": {0: seq_len},
-        # state系は形状固定 (B=1, D=512) なので指定不要
-    }
-
-    print(f"Exporting to {ONNX_PATH}...")
-    
-    # opset 17 を指定しつつ、最新の方式でエクスポート
     torch.onnx.export(
-        wrapped_model,
-        (dummy_idx, *dummy_states),
-        ONNX_PATH,
-        export_params=True,
-        opset_version=17,
+        model,
+        (dummy_idx, dummy_states),
+        save_path,
+        opset_version=18,
         do_constant_folding=True,
-        input_names=input_names,
-        output_names=output_names,
+        input_names=["idx", "c_states"],
+        output_names=["logits", "new_states"],
         dynamic_axes={
-            "idx": {0: "seq_len"},
-            "logits": {0: "seq_len"}
+            "idx": {0: "length", 1: "batch"},
+            "c_states": {1: "batch"},
+            "logits": {0: "length", 1: "batch"},
+            "new_states": {1: "batch"}
         },
+        dynamo=False # 依然としてこちらが安定します
     )
-    print("Success: ONNX model saved.")
+    print(f"Successfully exported to {save_path}")
 
-    model = onnx.load(ONNX_PATH)
-    onnx.save(model, ONNX_PATH, save_as_external_data=False)
+    model = onnx.load(save_path)
+    onnx.save(model, save_path, save_as_external_data=False)
 
     # 不要になった .data ファイルを削除
-    data_file = ONNX_PATH + ".data"
+    data_file = save_path + ".data"
     if os.path.exists(data_file):
         os.remove(data_file)
 
-if __name__ == "__main__":
-    export_onnx()
+export_to_onnx()

@@ -5,6 +5,7 @@ requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.4.1",
     "onnx>=1.20.1",
+    "onnxruntime>=1.24.0.dev20260114001",
     "onnxscript>=0.6.0.dev20260113",
     "safetensors>=0.7.0",
     "tinygrad",
@@ -21,6 +22,13 @@ name = "pytorch-nightly-rocm"
 url = "https://download.pytorch.org/whl/nightly/rocm7.1"
 #explicit = true
 
+[[tool.uv.index]]
+# https://github.com/microsoft/onnxruntime/issues/26547
+name = "visualstudio"
+url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/"
+explicit = true
+
 [tool.uv.sources]
 torch = { index = "pytorch-nightly-rocm" }
 tinygrad = { git = "https://github.com/tinygrad/tinygrad.git" }
+onnxruntime = { index = "visualstudio" }
