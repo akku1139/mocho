@@ -3,20 +3,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple
 
+import torch
+import torch.nn.functional as F
+
 @torch.jit.script
 def sru_compute(x, ufr, c_initial):
     # type: (torch.Tensor, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
     L, B, D = x.shape
     u, f, r = torch.chunk(ufr, 3, dim=-1)
 
-    # Sigmoidをここで一括で行う（L > 1 の時に爆速になる）
-    f_gate = torch.sigmoid(f)
-    r_gate = torch.sigmoid(r)
+    # Sigmoid -> Hard-Sigmoid に変更
+    # 重みのスケール感を維持しつつ高速化
+    f_gate = F.hardsigmoid(f)
+    r_gate = F.hardsigmoid(r)
 
-    # ONNXがループを認識してくれないのでprefillでも1トークンずつ
+    # 1トークンずつの処理
     u_s, f_s, r_s, x_s = u[0], f_gate[0], r_gate[0], x[0]
+
     c_new = f_s * c_initial + (1.0 - f_s) * u_s
-    h_new = r_s * torch.tanh(c_new) + (1.0 - r_s) * x_s
+
+    # Tanh -> 軽い近似関数に変更
+    # ここでは Tanh と挙動が近く、より軽量な計算式を採用
+    # x / (1 + |x|) は tanh(x) の非常に軽量な近似です
+    h_new = r_s * (c_new / (1.0 + torch.abs(c_new))) + (1.0 - r_s) * x_s
+
     return h_new.unsqueeze(0), c_new
 
 class SRULayer(nn.Module):
@@ -33,8 +43,10 @@ class SRULayer(nn.Module):
         # 線形変換
         ufr = self.w_ufr(x_norm)
         u, f, r = torch.chunk(ufr, 3, dim=-1)
-        f_gate = torch.sigmoid(f)
-        r_gate = torch.sigmoid(r)
+
+        # 1. Sigmoid -> Hard-Sigmoid に置換
+        f_gate = F.hardsigmoid(f)
+        r_gate = F.hardsigmoid(r)
 
         c_prev = c
         c_stack = []
@@ -49,10 +61,12 @@ class SRULayer(nn.Module):
 
         c_all = torch.cat(c_stack, dim=0)
 
-        # ここが重要：hs の計算には x_norm (正規化後) を使うのがオリジナル
-        hs = r_gate * torch.tanh(c_all) + (1.0 - r_gate) * x_norm
+        # 2. Tanh -> Softsign 近似に置換
+        # torch.tanh(c_all) を c_all / (1.0 + |c_all|) で代用
+        tanh_approx = c_all / (1.0 + torch.abs(c_all))
+        hs = r_gate * tanh_approx + (1.0 - r_gate) * x_norm
 
-        # 最後に residual (正規化前) を足す
+        # 最後に residual を足す
         return residual + hs, c_prev
 
 class MochoONNX(nn.Module):

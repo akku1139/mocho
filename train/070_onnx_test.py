@@ -8,7 +8,7 @@ VOCAB_SIZE = 6003
 N_EMBD = 512
 N_LAYER = 6
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-ONNX_PATH = "../model/weights/v1/mocho.onnx" # 先ほど出力したパス
+ONNX_PATH = "../model/weights/v1.1/mocho.onnx" # 先ほど出力したパス
 
 class MochoONNXInference:
     def __init__(self, model_path):
