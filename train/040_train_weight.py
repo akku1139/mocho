@@ -188,7 +188,7 @@ def main():
                 if step > 0 and step % 100 == 0:
                     save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
-                if step % 300 == 0:
+                if step % 500 == 0:
                     torch.cuda.empty_cache()
 
     except KeyboardInterrupt:
