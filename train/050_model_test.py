@@ -11,9 +11,6 @@ from mocho import Mocho
 #DEVICE = torch.device("cuda")
 DEVICE = torch.device("cpu")
 VOCAB_SIZE = 6003
-N_EMBD = 512
-N_LAYER = 6
-#N_LAYER = 1
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 SAVE_PATH = "../model/weights/mocho.safetensors"
 #SAVE_PATH = "../model/weights/mocho_1layer.safetensors"
@@ -73,7 +70,7 @@ if __name__ == "__main__":
     tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
     tokenizer.decoder = decoders.ByteLevel()
 
-    model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
+    model = Mocho(VOCAB_SIZE).to(DEVICE)
     state_dict = load_file(SAVE_PATH, device=str(DEVICE))
     if "lm_head.weight" not in state_dict and "token_emb.weight" in state_dict:
         state_dict["lm_head.weight"] = state_dict["token_emb.weight"]

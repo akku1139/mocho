@@ -14,9 +14,6 @@ from safetensors.torch import save_file, load_file
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
-N_EMBD = 512
-N_LAYER = 6
-#N_LAYER = 1
 BATCH_SIZE = 200
 SEQ_LEN = 256
 LEARNING_RATE = 1e-5
@@ -109,7 +106,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id)
 
-    model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
+    model = Mocho(VOCAB_SIZE).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     scaler = torch.amp.GradScaler('cuda')
 
