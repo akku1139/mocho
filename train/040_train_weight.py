@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tokenizers import Tokenizer
 import numpy as np
 import os
@@ -16,7 +17,7 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 BATCH_SIZE = 200
 SEQ_LEN = 256
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 5e-4
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
@@ -79,9 +80,13 @@ def save_checkpoint(model, optimizer, model_path, opt_path):
         del sd["lm_head.weight"]
     save_file(sd, model_path)
 
-    # 2. オプティマイザの状態をpthで保存
-    torch.save(optimizer.state_dict(), opt_path)
-    logger(f"Checkpoint saved.")
+    # --- オプティマイザとスケジューラの保存 ---
+    checkpoint_states = {
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+    }
+    torch.save(checkpoint_states, opt_path)
+    logger(f"Checkpoint saved (Model, Optimizer, and Scheduler).")
 
 def collate_fn(batch):
     # batch = [(x1, y1), (x2, y2), ...]
@@ -106,6 +111,11 @@ def main():
 
     model = Mocho(VOCAB_SIZE).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+    # スケジューラの定義
+    # 50ステップを1単位とするので、patienceの考え方に注意
+    # patience=0 : 50ステップ経過した時点で前回（50ステップ前）より改善してなければ即ダウン
+    # patience=2 : 50ステップ×(2+1) = 150ステップ改善がなければダウン
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     scaler = torch.amp.GradScaler('cuda')
 
     # --- チェックポイントのロード (コンパイル前に行う) ---
@@ -119,9 +129,11 @@ def main():
         model.load_state_dict(state_dict)
 
         if os.path.exists(OPT_SAVE_PATH):
-            logger(f"Loading optimizer state from {OPT_SAVE_PATH}...")
-            opt_state = torch.load(OPT_SAVE_PATH, map_location=DEVICE)
+            logger(f"Loading optimizer and scheduler state...")
+            checkpoint_states = torch.load(OPT_SAVE_PATH, map_location=DEVICE)
+            optimizer.load_state_dict(checkpoint_states["optimizer_state_dict"])
             optimizer.load_state_dict(opt_state)
+            scheduler.load_state_dict(checkpoint_states["scheduler_state_dict"])
         logger("Checkpoint loaded successfully.")
     else:
         logger("No checkpoint found. Starting from scratch.")
@@ -182,6 +194,11 @@ def main():
 
                 if step > 0 and step % 100 == 0:
                     save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
+
+                if step > 0 and step % 50 == 0:
+                    scheduler.step(loss.item())
+                    current_lr = optimizer.param_groups[0]['lr']
+                    logger(f"--- [LR Update Check] Epoch {epoch} | Step {step} | LR: {current_lr:.8f} ---")
 
                 if step % 500 == 0:
                     torch.cuda.empty_cache()
