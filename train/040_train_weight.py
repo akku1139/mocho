@@ -19,7 +19,7 @@ N_LAYER = 6
 #N_LAYER = 1
 BATCH_SIZE = 200
 SEQ_LEN = 256
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 1e-5
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
@@ -110,7 +110,7 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id)
 
     model = Mocho(VOCAB_SIZE, N_EMBD, N_LAYER).to(DEVICE)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     scaler = torch.amp.GradScaler('cuda')
 
     # --- チェックポイントのロード (コンパイル前に行う) ---
