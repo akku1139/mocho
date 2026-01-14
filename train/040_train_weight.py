@@ -15,7 +15,7 @@ from safetensors.torch import save_file, load_file
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
-BATCH_SIZE = 200
+BATCH_SIZE = 120
 SEQ_LEN = 256
 LEARNING_RATE = 5e-4
 EPOCHS = 5
@@ -65,7 +65,7 @@ class BinaryDataset(Dataset):
         # ここでは mask も padding も行わず、生の長さのまま返す
         return torch.from_numpy(x_ids), torch.from_numpy(y_ids)
 
-def save_checkpoint(model, optimizer, model_path, opt_path):
+def save_checkpoint(model, optimizer, scheduler, model_path, opt_path):
     """
     torch.compileされたモデルからプレフィックスを除去して保存
     """
@@ -193,7 +193,7 @@ def main():
                     #print(f"Sample target_y: {target_y[:, 0]}")
 
                 if step > 0 and step % 100 == 0:
-                    save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
+                    save_checkpoint(model, optimizer, scheduler, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
                 if step > 0 and step % 50 == 0:
                     scheduler.step(loss.item())
@@ -205,7 +205,7 @@ def main():
 
     except KeyboardInterrupt:
         logger("\nInterrupted. Saving checkpoint...")
-        save_checkpoint(model, optimizer, MODEL_SAVE_PATH, OPT_SAVE_PATH)
+        save_checkpoint(model, optimizer, scheduler, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
 if __name__ == "__main__":
     main()
