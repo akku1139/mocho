@@ -1,3 +1,4 @@
 *.pth
 *.pth_
 *.safetensors
+*.log
