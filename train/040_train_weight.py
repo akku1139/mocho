@@ -15,7 +15,7 @@ from safetensors.torch import save_file, load_file
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
-BATCH_SIZE = 120
+BATCH_SIZE = 110
 SEQ_LEN = 256
 LEARNING_RATE = 5e-4
 EPOCHS = 5
