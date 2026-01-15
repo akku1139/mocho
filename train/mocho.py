@@ -34,13 +34,12 @@ class SRULayer(nn.Module):
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=True)
         self.ln = nn.LayerNorm(n_embd)
         self.n_layer = n_layer
+        self.dropout = nn.Dropout(0.1)
 
-        # 修正1: 各層の寄与を初期状態で抑える (Small Init Reorder)
-        # 深い層ほど、初期値の影響を小さくして学習を安定させる
         with torch.no_grad():
-            self.w_ufr.weight.data.normal_(std=0.01 / (layer_id + 1)**0.5)
+            self.w_ufr.weight.data.normal_(std=0.001)
             self.w_ufr.bias.data.zero_()
-            self.w_ufr.bias.data[n_embd : 2*n_embd].fill_(1.0)
+            self.w_ufr.bias.data[2*n_embd : 3*n_embd].fill_(2.0)
 
     def forward(self, x, c=None):
         residual = x
@@ -51,7 +50,7 @@ class SRULayer(nn.Module):
         ufr = self.w_ufr(x_norm)
         hs, last_c = sru_compute(x_norm, ufr, c)
 
-        return residual + hs * (1.0 / (self.n_layer ** 0.5)), last_c
+        return residual + self.dropout(hs), last_c
 
 class Mocho(nn.Module):
     def __init__(self, vocab_size=6003, n_embd=768, n_layer=10):
@@ -77,4 +76,4 @@ class Mocho(nn.Module):
             new_states.append(c_out)
 
         x = self.final_ln(x)
-        return self.lm_head(x) * 0.1, new_states
+        return self.lm_head(x) * 0.3, new_states

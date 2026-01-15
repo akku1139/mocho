@@ -17,7 +17,7 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 BATCH_SIZE = 110
 SEQ_LEN = 256
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 2e-4
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
@@ -107,10 +107,10 @@ def main():
     pad_token_id = dataset.pad_id
     eos_token_id = dataset.eos_id
 
-    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id)
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.1)
 
     model = Mocho(VOCAB_SIZE).to(DEVICE)
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.1, eps=1e-6)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1.0, eps=1e-6)
     # スケジューラの定義
     # 50ステップを1単位とするので、patienceの考え方に注意
     # patience=0 : 50ステップ経過した時点で前回（50ステップ前）より改善してなければ即ダウン
