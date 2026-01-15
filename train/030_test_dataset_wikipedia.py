@@ -10,6 +10,8 @@ tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
 indices = np.fromfile(IDX_PATH, dtype=np.uint32).reshape(-1, 2)
 data = np.fromfile(BIN_PATH, dtype=np.uint16)
 
+print(indices)
+
 num_samples = 5
 random_indices = np.random.choice(len(indices), num_samples, replace=False)
 
