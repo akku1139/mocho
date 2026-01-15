@@ -15,12 +15,12 @@ from safetensors.torch import save_file, load_file
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
-BATCH_SIZE = 110
+BATCH_SIZE = 330
 SEQ_LEN = 256
 LEARNING_RATE = 2e-4
 EPOCHS = 5
-BIN_PATH = "../dataset/train_data.bin"
-IDX_PATH = "../dataset/train_indices.bin"
+BIN_PATH = "../dataset/train_data_mozc.bin"
+IDX_PATH = "../dataset/train_indices_mozc.bin"
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 
 # 保存パスの分離
@@ -100,6 +100,7 @@ def collate_fn(batch):
     return xs_padded, ys_padded
 
 def main():
+    logger('train with mozc')
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn, num_workers=2, pin_memory=True)
 
@@ -191,7 +192,7 @@ def main():
                     logger(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
                     #print(f"Sample target_y: {target_y[:, 0]}")
 
-                if step > 0 and step % 100 == 0:
+                if step > 0 and step % 500 == 0:
                     save_checkpoint(model, optimizer, scheduler, MODEL_SAVE_PATH, OPT_SAVE_PATH)
 
                 if step > 0 and step % 50 == 0:

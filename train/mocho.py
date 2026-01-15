@@ -39,7 +39,7 @@ class SRULayer(nn.Module):
         with torch.no_grad():
             self.w_ufr.weight.data.normal_(std=0.001)
             self.w_ufr.bias.data.zero_()
-            self.w_ufr.bias.data[2*n_embd : 3*n_embd].fill_(2.0)
+            self.w_ufr.bias.data[2*n_embd : 3*n_embd].fill_(0.0)
 
     def forward(self, x, c=None):
         residual = x
