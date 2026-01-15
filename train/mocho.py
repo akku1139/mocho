@@ -33,14 +33,14 @@ class SRULayer(nn.Module):
         super().__init__()
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=True)
         self.ln = nn.LayerNorm(n_embd)
+        self.n_layer = n_layer
 
         # 修正1: 各層の寄与を初期状態で抑える (Small Init Reorder)
         # 深い層ほど、初期値の影響を小さくして学習を安定させる
         with torch.no_grad():
-            self.w_ufr.weight.data.normal_(std=0.02 / (layer_id + 1)**0.5)
-            # 忘却ゲート(f)のバイアスを 2.0 に固定（過去を忘れない＝勾配を通す）
+            self.w_ufr.weight.data.normal_(std=0.01 / (layer_id + 1)**0.5)
             self.w_ufr.bias.data.zero_()
-            self.w_ufr.bias.data[n_embd : 2*n_embd].fill_(2.0)
+            self.w_ufr.bias.data[n_embd : 2*n_embd].fill_(1.0)
 
     def forward(self, x, c=None):
         residual = x
@@ -51,9 +51,7 @@ class SRULayer(nn.Module):
         ufr = self.w_ufr(x_norm)
         hs, last_c = sru_compute(x_norm, ufr, c)
 
-        # 修正2: 出力が大きくなりすぎないように 0.5 程度で残差に混ぜる、
-        # あるいは単に residual + hs。ここでは安定性をとり、hsを少し絞ります。
-        return residual + hs, last_c
+        return residual + hs * (1.0 / (self.n_layer ** 0.5)), last_c
 
 class Mocho(nn.Module):
     def __init__(self, vocab_size=6003, n_embd=768, n_layer=10):
@@ -70,9 +68,7 @@ class Mocho(nn.Module):
         nn.init.normal_(self.token_emb.weight, std=0.02)
 
     def forward(self, idx, c_states=None):
-        # 修正4: Embeddingのスケーリング (n_embdが大きいため)
-        # これによりSoftmaxの入力が落ち着き、特定トークンへの固着を防ぐ
-        x = self.token_emb(idx) * (self.n_embd ** 0.5)
+        x = self.token_emb(idx)
 
         new_states = []
         for i, layer in enumerate(self.layers):
@@ -81,4 +77,4 @@ class Mocho(nn.Module):
             new_states.append(c_out)
 
         x = self.final_ln(x)
-        return self.lm_head(x), new_states
+        return self.lm_head(x) * 0.1, new_states
