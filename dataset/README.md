@@ -1,5 +1,5 @@
 # dataset
 
 ```sh
-wget -i links.txt
+wget -nc -i links.txt
 ```

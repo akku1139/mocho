@@ -1,13 +1,11 @@
 import numpy as np
-from tokenizers import Tokenizer, pre_tokenizers, decoders
+from tokenizers import Tokenizer, decoders
 
 TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
-BIN_PATH = "../dataset/train_data.bin"
-IDX_PATH = "../dataset/train_indices.bin"
+BIN_PATH = "../dataset/train_data_mozc.bin"
+IDX_PATH = "../dataset/train_indices_mozc.bin"
 
 tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
-tokenizer.decoder = decoders.ByteLevel()
 
 indices = np.fromfile(IDX_PATH, dtype=np.uint32).reshape(-1, 2)
 data = np.fromfile(BIN_PATH, dtype=np.uint16)

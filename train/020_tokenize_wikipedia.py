@@ -14,7 +14,7 @@ from tokenizers import pre_tokenizers
 
 def preprocess():
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-    
+
     # --- ここを追加 ---
     # バイトレベルの前処理を設定
     tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
@@ -31,23 +31,23 @@ def preprocess():
     current_pos = 0
 
     print(f"Tokenizing with batch size {BATCH_SIZE}...")
-    
+
     # 書き出し用ファイルを開く
     with open(DATASET_PATH, 'r', encoding='utf-8') as f, \
          open(OUTPUT_BIN_PATH, 'wb') as f_bin:
-        
+
         batch_lines = []
         for line in tqdm(f):
             batch_lines.append(line)
-            
+
             if len(batch_lines) >= BATCH_SIZE:
                 # バッチ処理
                 current_pos = process_batch(batch_lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin)
                 batch_lines = []
-        
+
         # 残りのデータを処理
         if batch_lines:
-            process_batch(batch_lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin)
+            current_pos = process_batch(batch_lines, tokenizer, bos_id, eos_id, input_id, output_id, indices, current_pos, f_bin)
 
     print(f"Saving indices to {OUTPUT_IDX_PATH}...")
     np.array(indices, dtype=np.uint32).tofile(OUTPUT_IDX_PATH)

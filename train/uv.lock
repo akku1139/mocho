@@ -158,6 +158,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jaconv"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/49/239829acdddfe10836dc6606a7bceb131b2c151512cb66a28ce167a1cfa8/jaconv-0.4.1.tar.gz", hash = "sha256:d18898764a562304035a3af1b966bf3b1f73da8cb92ee7b75ad5b7762411cd28", size = 20277, upload-time = "2025-11-29T23:20:57.343Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/30/dcf9c45aca696c44d37f69f167c6ceae3e58cca853031836d5a0a7c58f3b/jaconv-0.4.1-py3-none-any.whl", hash = "sha256:98d42263225f0c1b780c6428f3ac65b96d652248929d1757520afef90687c2d7", size = 15958, upload-time = "2025-11-29T23:20:55.907Z" },
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://download.pytorch.org/whl/nightly/rocm7.1" }
@@ -225,6 +234,7 @@ name = "mocho-train"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "jaconv" },
     { name = "numpy" },
     { name = "safetensors" },
     { name = "tokenizers" },
@@ -233,6 +243,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jaconv", specifier = ">=0.4.1" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "safetensors", specifier = ">=0.7.0" },
     { name = "tokenizers", specifier = ">=0.22.2" },

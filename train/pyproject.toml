@@ -3,6 +3,7 @@ name = "mocho-train"
 version = "0.0.0"
 requires-python = ">=3.13"
 dependencies = [
+    "jaconv>=0.4.1",
     "numpy>=2.4.1",
     "safetensors>=0.7.0",
     "tokenizers>=0.22.2",
