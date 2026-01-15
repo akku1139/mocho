@@ -25,7 +25,7 @@ TOKENIZER_PATH = "../model/tokenizer/tokenizer.json"
 
 # 保存パスの分離
 MODEL_SAVE_PATH = "../model/weights/v1.3/mocho.safetensors"
-OPT_SAVE_PATH = "../model/weights/v1.3/optimizer_state.pth"
+OPT_SAVE_PATH = "../model/weights/v1.3/optimizer_state_mozc.pth"
 LOG_FILE_PATH = "../model/weights/v1.3/train.log"
 
 log_f = open(LOG_FILE_PATH, "a", encoding="utf-8", buffering=1)
