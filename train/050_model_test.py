@@ -81,3 +81,5 @@ if __name__ == "__main__":
     test(model, tokenizer, "初期化した", "ケッカハザンネンナモノデアッタ")
     test(model, tokenizer, "日本の歴史において、", "エドジダイニツイテオシエテ")
     test(model, tokenizer, "", "テストニュウリョクデス")
+    test(model, tokenizer, "服を", "キル")
+    test(model, tokenizer, "木を", "キル")
