@@ -12,34 +12,33 @@ def sru_compute(ufr, c_initial, x_norm):
     f_gate = torch.sigmoid(f)
     r_gate = torch.sigmoid(r)
 
+    # 修正1: uに対するtanhを外す（SRUの標準形：cへの入力を線形にする）
+    # これにより勾配が通りやすくなり、表現力が向上します
     c_stack = torch.empty_like(x_norm)
     c = c_initial
-
     for t in range(L):
-        # 修正1: u[t]への直接のtanhを外し、情報の流入を確保
-        # (SRUの標準的な実装に合わせる)
+        # u[t] をそのまま使用
         c = f_gate[t] * c + (1.0 - f_gate[t]) * u[t]
         c_stack[t] = c
 
-    # 修正2: 内部でHighway Network(x_normのブレンド)を完結させる
+    # 修正2: tanh(c) を計算。r_gateで「今の情報」と「Highway(x_norm)」を混ぜる
     hs = r_gate * torch.tanh(c_stack) + (1.0 - r_gate) * x_norm
     return hs, c
 
 class SRULayer(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
-        # バイアスを持たせ、忘却ゲートの初期値を制御しやすくする
         self.w_ufr = nn.Linear(n_embd, 3 * n_embd, bias=True)
         self.ln = nn.LayerNorm(n_embd)
         self._init_bias()
 
     def _init_bias(self):
-        # 忘却ゲート(f)のバイアスを 1.0〜2.0 程度にして、最初は「覚える」側に倒す
-        # [u, f, r] の順なので、真ん中のスライス
-        nn.init.constant_(self.w_ufr.bias[self.ln.normalized_shape[0] : 2*self.ln.normalized_shape[0]], 1.5)
+        # 忘却ゲートのバイアスを少し高めにするのは維持（長期記憶に有利）
+        n_embd = self.ln.normalized_shape[0]
+        nn.init.constant_(self.w_ufr.bias[n_embd : 2*n_embd], 1.5)
 
     def forward(self, x, c=None):
-        residual = x
+        # x_norm を使って SRU の演算を行う
         x_norm = self.ln(x)
 
         if c is None:
@@ -48,11 +47,10 @@ class SRULayer(nn.Module):
         ufr = self.w_ufr(x_norm)
         hs, last_c = sru_compute(ufr, c, x_norm)
 
-        # 修正3: hsはすでにx_norm(入力)をHighway的に含んでいるため、
-        # 外側の残差接続は x (正規化前) を足すだけに留めるか、
-        # もしくは hs の計算から x_norm を引くなどの調整が必要。
-        # 最も安定するのは、以下の形式です：
-        return residual + hs, last_c
+        # 修正3: SRU内部のHighway(1-r)ですでにxの成分が混合されているため、
+        # ここでは単純に hs を返すか、あるいは residual + (hs - x_norm) にします。
+        # 最も安定するのは Pre-LN ResNet 形式のこれです：
+        return x + hs, last_c
 
 class Mocho(nn.Module):
     def __init__(self, vocab_size=6003, n_embd=768, n_layer=10):
