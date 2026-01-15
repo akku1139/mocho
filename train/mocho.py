@@ -12,16 +12,15 @@ def sru_compute(ufr, c_initial, x_norm):
     f_gate = torch.sigmoid(f)
     r_gate = torch.sigmoid(r)
 
-    # 修正1: uに対するtanhを外す（SRUの標準形：cへの入力を線形にする）
-    # これにより勾配が通りやすくなり、表現力が向上します
     c_stack = torch.empty_like(x_norm)
     c = c_initial
     for t in range(L):
-        # u[t] をそのまま使用
+        # 修正: u に tanh をかけない。
+        # c の更新に生の u を使うことで、情報の流入を最大化する。
         c = f_gate[t] * c + (1.0 - f_gate[t]) * u[t]
         c_stack[t] = c
 
-    # 修正2: tanh(c) を計算。r_gateで「今の情報」と「Highway(x_norm)」を混ぜる
+    # 出力時のみ tanh をかけて非線形性を出す
     hs = r_gate * torch.tanh(c_stack) + (1.0 - r_gate) * x_norm
     return hs, c
 
@@ -33,9 +32,13 @@ class SRULayer(nn.Module):
         self._init_bias()
 
     def _init_bias(self):
-        # 忘却ゲートのバイアスを少し高めにするのは維持（長期記憶に有利）
+        # 忘却ゲートのバイアス。1.5は高すぎた可能性があるため 0.5 程度に。
+        # [u, f, r] のうち f の部分
         n_embd = self.ln.normalized_shape[0]
-        nn.init.constant_(self.w_ufr.bias[n_embd : 2*n_embd], 1.5)
+        nn.init.constant_(self.w_ufr.bias[n_embd : 2*n_embd], 0.5) 
+        # 残りの u, r のバイアスは 0 でOK
+        nn.init.constant_(self.w_ufr.bias[0 : n_embd], 0.0)
+        nn.init.constant_(self.w_ufr.bias[2*n_embd : 3*n_embd], 0.0)
 
     def forward(self, x, c=None):
         # x_norm を使って SRU の演算を行う
