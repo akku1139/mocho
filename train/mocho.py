@@ -76,4 +76,4 @@ class Mocho(nn.Module):
             new_states.append(c_out)
 
         x = self.final_ln(x)
-        return self.lm_head(x) * 0.3, new_states
+        return self.lm_head(x), new_states
