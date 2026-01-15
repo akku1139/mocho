@@ -111,7 +111,7 @@ def main():
     criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.1)
 
     model = Mocho(VOCAB_SIZE).to(DEVICE)
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.1, eps=1e-6)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.05, eps=1e-6)
     # スケジューラの定義
     # 50ステップを1単位とするので、patienceの考え方に注意
     # patience=0 : 50ステップ経過した時点で前回（50ステップ前）より改善してなければ即ダウン
