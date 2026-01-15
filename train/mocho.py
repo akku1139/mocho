@@ -12,21 +12,16 @@ def sru_compute(ufr, c_initial, x_norm):
     f_gate = torch.sigmoid(f)
     r_gate = torch.sigmoid(r)
 
-    if L == 1:
-        # u[0]に直接tanhを適用して、爆発を抑えつつ表現力を安定させる
-        u_s = torch.tanh(u[0])
-        c_new = f_gate[0] * c_initial + (1.0 - f_gate[0]) * u_s
-        h_new = r_gate[0] * torch.tanh(c_new) + (1.0 - r_gate[0]) * x_norm[0]
-        return h_new.unsqueeze(0), c_new
-
     c_stack = torch.empty_like(x_norm)
     c = c_initial
+
     for t in range(L):
-        # f_gateの初期値を高めに（忘却しにくく）することで、初期の学習を安定化
-        u_t = torch.tanh(u[t])
-        c = f_gate[t] * c + (1.0 - f_gate[t]) * u_t
+        # 修正1: u[t]への直接のtanhを外し、情報の流入を確保
+        # (SRUの標準的な実装に合わせる)
+        c = f_gate[t] * c + (1.0 - f_gate[t]) * u[t]
         c_stack[t] = c
 
+    # 修正2: 内部でHighway Network(x_normのブレンド)を完結させる
     hs = r_gate * torch.tanh(c_stack) + (1.0 - r_gate) * x_norm
     return hs, c
 
@@ -51,11 +46,12 @@ class SRULayer(nn.Module):
             c = torch.zeros(x.size(1), x.size(2), device=x.device, dtype=x.dtype)
 
         ufr = self.w_ufr(x_norm)
-        # 修正: residual + hs ではなく、SRU内部で入力をバイパスしているので
-        # ここでは hs 自体が residual を含むような形にする（Highway Network的）
         hs, last_c = sru_compute(ufr, c, x_norm)
 
-        # residual(入力) + hs(変換された残差)
+        # 修正3: hsはすでにx_norm(入力)をHighway的に含んでいるため、
+        # 外側の残差接続は x (正規化前) を足すだけに留めるか、
+        # もしくは hs の計算から x_norm を引くなどの調整が必要。
+        # 最も安定するのは、以下の形式です：
         return residual + hs, last_c
 
 class Mocho(nn.Module):
