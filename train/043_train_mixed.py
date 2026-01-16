@@ -17,7 +17,7 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 BATCH_SIZE = 110
 SEQ_LEN = 256
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 2.5e-5
 EPOCHS = 5
 BIN_PATH_WIKIPEDIA = "../dataset/train_data.bin"
 IDX_PATH_WIKIPEDIA = "../dataset/train_indices.bin"
@@ -113,7 +113,7 @@ def main():
 
     dataset_wikipedia_len = len(dataset_wikipedia)
     dataset_mozc_len = len(dataset_mozc)
-    target_ratio = 0.30  # 0% 混ぜる
+    target_ratio = 0.90  # Mozcを混ぜる割合
 
     repeat_count = int((dataset_wikipedia_len * target_ratio) / (dataset_mozc_len * (1 - target_ratio)))
 
@@ -170,7 +170,7 @@ def main():
         logger("No checkpoint found. Starting from scratch.")
 
     # temp
-    #for param_group in optimizer.param_groups: param_group['lr'] = 1e-4
+    #for param_group in optimizer.param_groups: param_group['lr'] = LEARNING_RATE
 
     '''
     logger(f"compiling model...")
