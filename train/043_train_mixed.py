@@ -113,7 +113,7 @@ def main():
 
     dataset_wikipedia_len = len(dataset_wikipedia)
     dataset_mozc_len = len(dataset_mozc)
-    target_ratio = 0.20  # 20% 混ぜる
+    target_ratio = 0.30  # 0% 混ぜる
 
     repeat_count = int((dataset_wikipedia_len * target_ratio) / (dataset_mozc_len * (1 - target_ratio)))
 
@@ -139,7 +139,7 @@ def main():
     pad_token_id = dataset_wikipedia.pad_id
     eos_token_id = dataset_wikipedia.eos_id
 
-    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.05)
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.01)
 
     model = Mocho(VOCAB_SIZE).to(DEVICE)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.05, eps=1e-6)
@@ -170,7 +170,7 @@ def main():
         logger("No checkpoint found. Starting from scratch.")
 
     # temp
-    #for param_group in optimizer.param_groups: param_group['lr'] = 5e-5
+    #for param_group in optimizer.param_groups: param_group['lr'] = 1e-4
 
     '''
     logger(f"compiling model...")
