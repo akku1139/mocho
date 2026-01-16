@@ -139,7 +139,7 @@ def main():
     pad_token_id = dataset_wikipedia.pad_id
     eos_token_id = dataset_wikipedia.eos_id
 
-    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_token_id, label_smoothing=0.05)
 
     model = Mocho(VOCAB_SIZE).to(DEVICE)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.05, eps=1e-6)
