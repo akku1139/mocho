@@ -15,9 +15,9 @@ from safetensors.torch import save_file, load_file
 # --- 設定 ---
 DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
-BATCH_SIZE = 330
-SEQ_LEN = 256
-LEARNING_RATE = 2e-4
+BATCH_SIZE = 600
+SEQ_LEN = 32
+LEARNING_RATE = 1e-4
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data_mozc.bin"
 IDX_PATH = "../dataset/train_indices_mozc.bin"
@@ -137,6 +137,9 @@ def main():
         logger("Checkpoint loaded successfully.")
     else:
         logger("No checkpoint found. Starting from scratch.")
+
+    # temp
+    #for param_group in optimizer.param_groups: param_group['lr'] = LEARNING_RATE
 
     '''
     logger(f"compiling model...")
