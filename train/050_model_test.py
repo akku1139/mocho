@@ -98,3 +98,5 @@ if __name__ == "__main__":
     test(model, tokenizer, "", "ファンコントロールヲスル")
     test(model, tokenizer, "", "スベテアナタノセイデシタ")
     test(model, tokenizer, "", "ソレハザンネンデシタガシカタガアリマセン")
+    test(model, tokenizer, "天気が悪いので", "アメガフッテイル")
+    test(model, tokenizer, "甘くて美味しい", "アメヲナメタイ")
