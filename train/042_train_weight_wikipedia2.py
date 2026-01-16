@@ -17,7 +17,7 @@ DEVICE = torch.device("cuda")
 VOCAB_SIZE = 6003
 BATCH_SIZE = 110
 SEQ_LEN = 256
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 1e-4
 EPOCHS = 5
 BIN_PATH = "../dataset/train_data.bin"
 IDX_PATH = "../dataset/train_indices.bin"
@@ -116,7 +116,7 @@ def main():
     # 50ステップを1単位とするので、patienceの考え方に注意
     # patience=0 : 50ステップ経過した時点で前回（50ステップ前）より改善してなければ即ダウン
     # patience=2 : 50ステップ×(2+1) = 150ステップ改善がなければダウン
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20)
     scaler = torch.amp.GradScaler('cuda')
 
     # --- チェックポイントのロード (コンパイル前に行う) ---
