@@ -170,7 +170,7 @@ def main():
         logger("No checkpoint found. Starting from scratch.")
 
     # temp
-    for param_group in optimizer.param_groups: param_group['lr'] = 5e-5
+    #for param_group in optimizer.param_groups: param_group['lr'] = 5e-5
 
     '''
     logger(f"compiling model...")
