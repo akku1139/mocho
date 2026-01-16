@@ -113,7 +113,7 @@ def main():
 
     dataset_wikipedia_len = len(dataset_wikipedia)
     dataset_mozc_len = len(dataset_mozc)
-    target_ratio = 0.10  # 10% 混ぜる
+    target_ratio = 0.20  # 20% 混ぜる
 
     repeat_count = int((dataset_wikipedia_len * target_ratio) / (dataset_mozc_len * (1 - target_ratio)))
 
@@ -147,7 +147,7 @@ def main():
     # 50ステップを1単位とするので、patienceの考え方に注意
     # patience=0 : 50ステップ経過した時点で前回（50ステップ前）より改善してなければ即ダウン
     # patience=2 : 50ステップ×(2+1) = 150ステップ改善がなければダウン
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=20)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=7)
     scaler = torch.amp.GradScaler('cuda')
 
     # --- チェックポイントのロード (コンパイル前に行う) ---
@@ -168,6 +168,9 @@ def main():
         logger("Checkpoint loaded successfully.")
     else:
         logger("No checkpoint found. Starting from scratch.")
+
+    # temp
+    for param_group in optimizer.param_groups: param_group['lr'] = 5e-5
 
     '''
     logger(f"compiling model...")
