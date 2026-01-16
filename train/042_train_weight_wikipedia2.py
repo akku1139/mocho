@@ -102,7 +102,7 @@ def collate_fn(batch):
 def main():
     logger('train with wikipedia2')
     dataset = BinaryDataset(BIN_PATH, IDX_PATH, SEQ_LEN, TOKENIZER_PATH)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn, num_workers=2, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn, num_workers=4, pin_memory=True)
 
     output_token_id = dataset.output_id
     pad_token_id = dataset.pad_id
