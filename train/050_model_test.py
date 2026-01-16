@@ -55,13 +55,13 @@ def generate_fast(model, tokenizer, left_context, input_text, max_new_tokens=100
     return tokenizer.decode(generated)
 
 def test(model, tokenizer, ctx, inp):
-    print(f"\nContext: {ctx}\nInput: {inp}\nOutput: ", end="", flush=True)
+    print(f"Context: {ctx} / Input: {inp} / Output: ", end="", flush=True)
     start_time = time.perf_counter()
     result = generate_fast(model, tokenizer, ctx, inp, 100, 0.2)
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    print(result)
-    print(f"time: {elapsed_time:.6f} sec")
+    print(result, end='')
+    print(f" / time: {elapsed_time:.6f} sec")
 
 if __name__ == "__main__":
     # Tokenizer設定
@@ -83,3 +83,9 @@ if __name__ == "__main__":
     test(model, tokenizer, "", "テストニュウリョクデス")
     test(model, tokenizer, "服を", "キル")
     test(model, tokenizer, "木を", "キル")
+    test(model, tokenizer, "", "ハナガサク")
+    test(model, tokenizer, "", "ハナガタカイ")
+    test(model, tokenizer, "私の", "ハナガタカイ")
+    test(model, tokenizer, "物価高騰で", "ハナガタカイ")
+    test(model, tokenizer, "", "AIガニホンゴヲマナブ")
+    test(model, tokenizer, "", "ソヴィエトロシアデハ、シガアナタヲカク！")
